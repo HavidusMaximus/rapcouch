@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RAPCOUCH — Freestyle Word Generator</title>
+<style>
+  @font-face {
+    font-family: 'Anton';
+    src: local('Anton');
+  }
+  :root{
+    --bg: #0a0a0a;
+    --bg-raised: #121212;
+    --fg: #ededea;
+    --fg-dim: #6b6b68;
+    --accent: #ff4d1c;
+    --accent-dim: #5a2210;
+    --line: #232320;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{
+    margin:0; padding:0; height:100%; width:100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    overflow:hidden;
+    overscroll-behavior:none;
+    user-select:none;
+  }
+  #app{
+    height:100vh; height:100dvh; width:100vw;
+    display:flex; flex-direction:column;
+    justify-content:flex-start;
+    gap: 14px;
+    padding: 16px 24px 20px;
+    position:relative;
+  }
+
+  /* ---------- top bar ---------- */
+  #topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:16px;
+    font-family: 'JetBrains Mono','SFMono-Regular',Consolas,monospace;
+  }
+  .brand{
+    font-family: Arial Black, Arial, sans-serif;
+    font-weight:900;
+    letter-spacing: 0.14em;
+    font-size: 13px;
+    color: var(--fg-dim);
+  }
+  .brand b{ color: var(--fg); }
+
+  iconbtn, .iconbtn{
+    display:flex; align-items:center; justify-content:center;
+    width:38px; height:38px;
+    background: transparent; border: 1px solid var(--line);
+    border-radius: 4px; color: var(--fg-dim);
+    cursor:pointer;
+    position:relative;
+  }
+  .iconbtn:active{ background: var(--bg-raised); }
+  .iconbtn svg{ width:16px; height:16px; }
+  .iconbtn.active{ border-color: var(--accent); color: var(--accent); }
+  .iconbtn .dot-badge{
+    display:none;
+    position:absolute; top:-3px; right:-3px;
+    width:7px; height:7px; border-radius:50%;
+    background: var(--accent);
+  }
+  .iconbtn.active .dot-badge{ display:block; }
+  #topbarRight{ display:flex; align-items:center; gap:8px; }
+
+  /* ---------- mode row ---------- */
+  #modeRow{
+    display:flex; align-items:center; justify-content:center;
+    flex-wrap:wrap; gap:10px;
+    font-family: 'JetBrains Mono','SFMono-Regular',Consolas,monospace;
+  }
+  .modeToggle{
+    display:flex; border:1px solid var(--line); border-radius:20px; overflow:hidden;
+  }
+  .modeBtn{
+    padding:6px 14px; font-size:11px; letter-spacing:0.1em;
+    color: var(--fg-dim); cursor:pointer;
+  }
+  .modeBtn.active{ background: var(--accent); color:#0a0a0a; font-weight:700; }
+
+  .modeControls{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; }
+  .modeControls.hidden{ display:none; }
+
+  #ctrlVal, .ctrlVal{
+    font-size: 18px; font-weight:700; min-width: 2.4ch; text-align:center;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+  }
+  .ctrlUnit{ font-size:10px; color:var(--fg-dim); letter-spacing:0.08em; }
+  .step{
+    width:24px; height:24px; border-radius:4px;
+    background: var(--bg-raised); border:1px solid var(--line);
+    color: var(--fg); font-size:15px; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; user-select:none; font-weight:700;
+    font-family: 'JetBrains Mono',monospace;
+  }
+  .step:active{ background: var(--line); }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none;
+    width: 90px; height: 3px; background: var(--line);
+    border-radius: 2px; outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:14px; height:14px; border-radius:50%;
+    background: var(--accent); cursor:pointer;
+    box-shadow: 0 0 0 4px rgba(255,77,28,0.15);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%;
+    background: var(--accent); border:none; cursor:pointer;
+  }
+  #tapBtn{
+    padding:6px 12px; border-radius:6px;
+    background: var(--bg-raised); border:1px solid var(--line);
+    color: var(--fg); font-size:11px; font-weight:700; letter-spacing:0.1em;
+    cursor:pointer;
+  }
+  #tapBtn.tapped{ background: var(--accent); color:#0a0a0a; border-color:var(--accent); }
+  #tapHint{ font-size:9px; color:var(--fg-dim); letter-spacing:0.06em; }
+
+  /* ---------- word stage ---------- */
+  #stage{
+    flex:1;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    gap: 4px;
+    position:relative;
+    min-height:0;
+    width:100%;
+  }
+  #word{
+    font-family: 'Anton', 'Arial Black', Arial, sans-serif;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    line-height: 0.95;
+    text-align:center;
+    color: var(--fg);
+    transition: opacity 0.06s linear, color 0.08s linear;
+    white-space: nowrap;
+    max-width: 100%;
+    padding: 0 8px;
+  }
+  #word.hit{
+    color: var(--accent);
+    text-shadow: 0 0 40px rgba(255,77,28,0.35);
+  }
+  .wordGhost{
+    font-family: 'Anton', 'Arial Black', Arial, sans-serif;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    text-align:center;
+    white-space: nowrap;
+    overflow:hidden;
+    text-overflow: ellipsis;
+    max-width: 92%;
+    font-size: clamp(13px, 4vw, 30px);
+    line-height:1;
+    color: var(--fg-dim);
+  }
+  #wordPrev{ opacity:0.5; }
+  #wordNext{ opacity:0.28; }
+  #stage.fs .wordGhost{ font-size: clamp(18px, 4.6vw, 42px); }
+
+  #statusrow{
+    text-align:center;
+    margin-top: 6px;
+  }
+  #category{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px; letter-spacing:0.2em; color:var(--fg-dim);
+  }
+
+  /* ---------- beat row ---------- */
+  #beatrow{
+    display:flex; align-items:center; justify-content:center; gap:14px;
+  }
+  #beatrow.hidden{ display:none; }
+  .dot{
+    width:10px; height:10px; border-radius:50%;
+    background: var(--line);
+    transition: transform 0.08s ease, background 0.08s ease;
+  }
+  .dot.on{
+    background: var(--fg-dim);
+    transform: scale(1.3);
+  }
+  .dot.four.on{
+    background: var(--accent);
+    transform: scale(1.7);
+    box-shadow: 0 0 16px rgba(255,77,28,0.7);
+  }
+
+  /* ---------- thema progress ---------- */
+  #themaProgress{
+    display:none;
+    flex-direction:column; align-items:center; gap:6px;
+  }
+  #themaProgress.show{ display:flex; }
+  #themaTrack{
+    width: 200px; max-width: 60vw; height:4px;
+    background: var(--line); border-radius:2px; overflow:hidden;
+  }
+  #themaFill{
+    height:100%; width:0%; background: var(--accent);
+    transition: width 0.9s linear;
+  }
+  #themaCountdown{
+    font-family:'JetBrains Mono',monospace; font-size:12px;
+    letter-spacing:0.08em; color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- bottom controls ---------- */
+  #controls{
+    display:flex; align-items:center; justify-content:center; gap:14px;
+  }
+  #playBtn{
+    width:64px; height:64px; border-radius:50%;
+    background: var(--accent); border:none;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; color:#0a0a0a;
+  }
+  #playBtn svg{ width:22px; height:22px; }
+
+  #nextBtn, #filterBtn{
+    width:48px; height:48px; border-radius:50%;
+    background: var(--bg-raised); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; color:var(--fg);
+    position:relative;
+  }
+  #nextBtn svg, #filterBtn svg{ width:18px; height:18px; }
+  #filterBtn.active{ border-color: var(--accent); color: var(--accent); }
+  #filterBtn .dot-badge{
+    display:none;
+    position:absolute; top:2px; right:2px;
+    width:7px; height:7px; border-radius:50%;
+    background: var(--accent);
+  }
+  #filterBtn.active .dot-badge{ display:block; }
+
+  /* ---------- filter panel ---------- */
+  #filterOverlay{
+    position:fixed; inset:0; background:rgba(0,0,0,0.55);
+    display:none; align-items:flex-end; justify-content:center;
+    z-index:20;
+  }
+  #filterOverlay.open{ display:flex; }
+  #filterPanel{
+    width:100%; max-width:420px;
+    max-height: 82vh; overflow-y:auto;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-bottom:none;
+    border-radius: 14px 14px 0 0;
+    padding: 18px 22px 26px;
+  }
+  .filterHead{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:16px;
+  }
+  .filterHead span{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px; letter-spacing:0.18em; color:var(--fg-dim);
+  }
+  #filterClose{
+    width:28px; height:28px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    color: var(--fg-dim); cursor:pointer; font-size:18px;
+  }
+  .filterRow{ margin-bottom:18px; }
+  .filterRow:last-child{ margin-bottom:0; }
+  .filterLabel{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px; letter-spacing:0.1em; color:var(--fg-dim);
+    margin-bottom:8px;
+  }
+  .filterLabel b{ color: var(--fg); font-weight:700; }
+  .rangeRow{ display:flex; align-items:center; gap:10px; }
+  .rangeRow span{
+    font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--fg-dim);
+    width:24px; text-align:left;
+  }
+  .rangeRow input[type=range]{ flex:1; width:auto; }
+  .chipRow{ display:flex; gap:8px; flex-wrap:wrap; }
+  .chip{
+    padding:8px 14px; border-radius:20px;
+    background: var(--bg); border:1px solid var(--line);
+    color: var(--fg-dim);
+    font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:0.04em;
+    cursor:pointer;
+  }
+  .chip.active{
+    border-color: var(--accent); color: var(--accent);
+    background: rgba(255,77,28,0.08);
+  }
+  #poolInfo{
+    text-align:center; margin-top:16px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px; letter-spacing:0.1em; color: var(--fg-dim);
+  }
+
+  #hint{
+    text-align:center;
+    font-family:'JetBrains Mono',monospace;
+    font-size: 10px; letter-spacing:0.1em; color: var(--fg-dim);
+    opacity:0.6;
+    padding: 0 4px;
+  }
+
+  #app.fs #topbar, #app.fs #hint, #app.fs #modeRow{ opacity:0.15; transition: opacity 0.3s; }
+  #app.fs:hover #topbar, #app.fs:hover #hint, #app.fs:hover #modeRow{ opacity:1; }
+  #app.fs #beatrow, #app.fs #themaProgress{ opacity:0.4; }
+
+  @media (max-width: 480px){
+    input[type=range]{ width: 64px; }
+    #app{ gap: 10px; }
+  }
+  @media (max-height: 560px){
+    #app{ gap: 8px; padding: 10px 20px 14px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div class="brand">RAP<b>COUCH</b></div>
+    <div id="topbarRight">
+      <div class="iconbtn" id="fsBtn" title="Vollbild">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <div id="modeRow">
+    <div class="modeToggle">
+      <div class="modeBtn active" data-mode="takt">TAKT</div>
+      <div class="modeBtn" data-mode="thema">THEMA</div>
+    </div>
+
+    <div id="taktControls" class="modeControls">
+      <div class="step" id="bpmMinus" title="Langsamer">−</div>
+      <span class="ctrlVal" id="bpmVal">90</span>
+      <div class="step" id="bpmPlus" title="Schneller">+</div>
+      <input type="range" id="bpmSlider" min="50" max="180" value="90" step="1">
+      <div id="tapBtn" title="Im Takt tippen">TAP</div>
+    </div>
+
+    <div id="themaControls" class="modeControls hidden">
+      <div class="step" id="minMinus">−</div>
+      <span class="ctrlVal" id="minVal">02</span>
+      <span class="ctrlUnit">MIN</span>
+      <div class="step" id="minPlus">+</div>
+      <div class="step" id="secMinus">−</div>
+      <span class="ctrlVal" id="secVal">00</span>
+      <span class="ctrlUnit">SEK</span>
+      <div class="step" id="secPlus">+</div>
+      <input type="range" id="secSlider" min="0" max="59" value="0" step="1">
+    </div>
+  </div>
+
+  <div id="statusrow"><span id="category">BEREIT</span></div>
+
+  <div id="stage">
+    <div id="wordPrev" class="wordGhost"></div>
+    <div id="word">DRÜCK&nbsp;PLAY</div>
+    <div id="wordNext" class="wordGhost"></div>
+  </div>
+
+  <div id="beatrow">
+    <div class="dot" data-b="1"></div>
+    <div class="dot" data-b="2"></div>
+    <div class="dot" data-b="3"></div>
+    <div class="dot four" data-b="4"></div>
+  </div>
+
+  <div id="themaProgress">
+    <div id="themaTrack"><div id="themaFill"></div></div>
+    <div id="themaCountdown">02:00</div>
+  </div>
+
+  <div id="controls">
+    <div class="iconbtn" id="nextBtn" title="Nächstes Wort">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l10 8-10 8V4zm12 0h2v16h-2V4z"/></svg>
+    </div>
+    <button id="playBtn" title="Start/Stop">
+      <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+    </button>
+    <div class="iconbtn" id="filterBtn" title="Wortfilter">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="11" cy="18" r="2" fill="currentColor" stroke="none"/></svg>
+      <div class="dot-badge"></div>
+    </div>
+  </div>
+
+  <div id="hint">LEERTASTE = START/STOP &nbsp;·&nbsp; N = NÄCHSTES WORT &nbsp;·&nbsp; F = VOLLBILD &nbsp;·&nbsp; T = TAP</div>
+</div>
+
+<div id="filterOverlay">
+  <div id="filterPanel">
+    <div class="filterHead">
+      <span>WORTFILTER</span>
+      <div id="filterClose">×</div>
+    </div>
+
+    <div class="filterRow">
+      <div class="filterLabel">
+        <span>WORTLÄNGE</span>
+        <b id="lenRangeVal">4–12 ZEICHEN</b>
+      </div>
+      <div class="rangeRow">
+        <span>MIN</span>
+        <input type="range" id="lenMin" min="4" max="12" value="4" step="1">
+      </div>
+      <div class="rangeRow">
+        <span>MAX</span>
+        <input type="range" id="lenMax" min="4" max="12" value="12" step="1">
+      </div>
+    </div>
+
+    <div class="filterRow">
+      <div class="filterLabel"><span>KOMPLEXITÄT</span></div>
+      <div class="chipRow" id="complexityChips">
+        <div class="chip active" data-c="alle">Alle</div>
+        <div class="chip" data-c="einfach">Einfach</div>
+        <div class="chip" data-c="mittel">Mittel</div>
+        <div class="chip" data-c="schwer">Schwer</div>
+      </div>
+    </div>
+
+    <div class="filterRow">
+      <div class="filterLabel"><span>WORTART</span></div>
+      <div class="chipRow" id="posChips">
+        <div class="chip active" data-p="alle">Alle</div>
+        <div class="chip" data-p="n">Nomen</div>
+        <div class="chip" data-p="v">Verben</div>
+        <div class="chip" data-p="a">Adjektive</div>
+      </div>
+    </div>
+
+    <div id="poolInfo">— WÖRTER IM POOL</div>
+  </div>
+</div>
+
+<script src="words.js"></script>
+<script src="pos.js"></script>
+<script>
+
+/* ---------------- state ---------------- */
+const state = {
+  mode: 'takt',          // 'takt' | 'thema'
+  bpm: 90,
+  intervalMin: 2,
+  intervalSecPart: 0,
+  intervalSec: 120,
+  playing: false,
+  started: false,
+  beatCount: 0,
+  themaRemaining: 120,
+  timer: null,
+  prevWord: '',
+  currentWord: 'DRÜCK PLAY',
+  nextWord: '',
+  history: [],
+  lenMin: 4,
+  lenMax: 12,
+  complexity: 'alle',
+  pos: 'alle',
+  pool: WORDS,
+  tapTimes: [],
+};
+
+const el = {
+  word: document.getElementById('word'),
+  wordPrev: document.getElementById('wordPrev'),
+  wordNext: document.getElementById('wordNext'),
+  category: document.getElementById('category'),
+  bpmVal: document.getElementById('bpmVal'),
+  bpmSlider: document.getElementById('bpmSlider'),
+  bpmMinus: document.getElementById('bpmMinus'),
+  bpmPlus: document.getElementById('bpmPlus'),
+  tapBtn: document.getElementById('tapBtn'),
+  minVal: document.getElementById('minVal'),
+  secVal: document.getElementById('secVal'),
+  minMinus: document.getElementById('minMinus'),
+  minPlus: document.getElementById('minPlus'),
+  secMinus: document.getElementById('secMinus'),
+  secPlus: document.getElementById('secPlus'),
+  secSlider: document.getElementById('secSlider'),
+  taktControls: document.getElementById('taktControls'),
+  themaControls: document.getElementById('themaControls'),
+  modeBtns: Array.from(document.querySelectorAll('.modeBtn')),
+  playBtn: document.getElementById('playBtn'),
+  playIcon: document.getElementById('playIcon'),
+  nextBtn: document.getElementById('nextBtn'),
+  fsBtn: document.getElementById('fsBtn'),
+  app: document.getElementById('app'),
+  stage: document.getElementById('stage'),
+  dots: Array.from(document.querySelectorAll('.dot')),
+  beatrow: document.getElementById('beatrow'),
+  themaProgress: document.getElementById('themaProgress'),
+  themaFill: document.getElementById('themaFill'),
+  themaCountdown: document.getElementById('themaCountdown'),
+  filterBtn: document.getElementById('filterBtn'),
+  filterOverlay: document.getElementById('filterOverlay'),
+  filterClose: document.getElementById('filterClose'),
+  lenMin: document.getElementById('lenMin'),
+  lenMax: document.getElementById('lenMax'),
+  lenRangeVal: document.getElementById('lenRangeVal'),
+  complexityChips: Array.from(document.querySelectorAll('#complexityChips .chip')),
+  posChips: Array.from(document.querySelectorAll('#posChips .chip')),
+  poolInfo: document.getElementById('poolInfo'),
+};
+
+/* ---------------- word meta & filtering ---------------- */
+// Komplexität wird über die Silbenanzahl geschätzt (Vokalgruppen) —
+// mehr Silben = schwerer im Flow zu platzieren.
+function estimateSyllables(word){
+  const groups = word.toLowerCase().match(/[aeiouyäöüáàéèíìóòúù]+/g);
+  return groups ? groups.length : 1;
+}
+function complexityOf(syl){
+  if (syl <= 2) return 'einfach';
+  if (syl === 3) return 'mittel';
+  return 'schwer';
+}
+
+// Wortart stammt aus einer echten POS-Analyse (spaCy, deutsches Modell
+// de_core_news_sm, STTS-Tagset), offline vorberechnet für die gesamte
+// Wortliste — keine Endungs-Heuristik mehr. Codes: n=Nomen, v=Verb,
+// a=Adjektiv, o=Sonstiges (z. B. Adverb, Partikel — nur in "Alle" sichtbar).
+function posOf(index){
+  return POS_CODES[index];
+}
+
+const WORD_META = WORDS.map((w, i) => {
+  const syl = estimateSyllables(w);
+  return { w, len: w.length, c: complexityOf(syl), p: posOf(i) };
+});
+
+function rebuildPool(){
+  const { lenMin, lenMax, complexity, pos } = state;
+  const posCode = pos === 'alle' ? null : pos;
+  const pool = [];
+  for (let i = 0; i < WORD_META.length; i++){
+    const m = WORD_META[i];
+    if (m.len < lenMin || m.len > lenMax) continue;
+    if (complexity !== 'alle' && m.c !== complexity) continue;
+    if (posCode && m.p !== posCode) continue;
+    pool.push(m.w);
+  }
+  state.pool = pool.length ? pool : WORDS;
+  el.poolInfo.textContent = pool.length
+    ? `${pool.length.toLocaleString('de-DE')} WÖRTER IM POOL`
+    : 'KEINE TREFFER — ZEIGE ALLE WÖRTER';
+  el.filterBtn.classList.toggle('active',
+    state.lenMin > 4 || state.lenMax < 12 || state.complexity !== 'alle' || state.pos !== 'alle');
+}
+
+function pickWord(){
+  let w;
+  let tries = 0;
+  const src = state.pool;
+  do {
+    w = src[Math.floor(Math.random() * src.length)];
+    tries++;
+  } while (state.history.includes(w) && tries < 8);
+  state.history.push(w);
+  if (state.history.length > 40) state.history.shift();
+  return w;
+}
+
+/* ---------------- word display (prev / current / next) ---------------- */
+function fitWord(){
+  const isFS = el.stage.classList.contains('fs');
+  const maxPx = isFS
+    ? Math.min(window.innerWidth * 0.15, 200)
+    : Math.min(window.innerWidth * 0.12, 118);
+  const minPx = 18;
+  const maxWidth = el.stage.clientWidth * 0.92;
+
+  let size = maxPx;
+  el.word.style.fontSize = size + 'px';
+  while (el.word.scrollWidth > maxWidth && size > minPx){
+    size -= 2;
+    el.word.style.fontSize = size + 'px';
+  }
+}
+
+function renderWords(){
+  el.word.textContent = state.currentWord;
+  el.wordPrev.textContent = state.prevWord || '';
+  el.wordNext.textContent = state.nextWord || '';
+  fitWord();
+}
+
+function ensureStarted(){
+  if (state.started) return;
+  state.started = true;
+  state.currentWord = pickWord();
+  state.nextWord = pickWord();
+  state.prevWord = '';
+  renderWords();
+}
+
+function advanceWord(){
+  state.prevWord = state.currentWord;
+  state.currentWord = state.nextWord;
+  state.nextWord = pickWord();
+  renderWords();
+  el.word.classList.add('hit');
+  setTimeout(()=> el.word.classList.remove('hit'), 180);
+}
+
+window.addEventListener('resize', fitWord);
+
+/* ---------------- TAKT clock (beat-synced) ---------------- */
+// Der Beat-Zähler läuft mit dem echten BPM-Tempo für die Punktanzeige,
+// der Wortwechsel erfolgt aber nur alle 8 Beats -> halbe Geschwindigkeit.
+function tickBeat(){
+  const beatInBar = state.beatCount % 4;
+  el.dots.forEach(d => d.classList.remove('on'));
+  el.dots[beatInBar].classList.add('on');
+
+  if (state.beatCount % 8 === 7){
+    advanceWord();
+  }
+  state.beatCount++;
+}
+
+function intervalMs(){
+  return 60000 / state.bpm;
+}
+
+function startTaktClock(){
+  stopClock();
+  state.beatCount = 0;
+  tickBeat();
+  state.timer = setInterval(tickBeat, intervalMs());
+}
+
+/* ---------------- THEMA clock (zeitbasiert) ---------------- */
+function updateThemaDisplay(){
+  const remain = Math.max(0, state.themaRemaining);
+  const mm = String(Math.floor(remain / 60)).padStart(2, '0');
+  const ss = String(remain % 60).padStart(2, '0');
+  el.themaCountdown.textContent = `${mm}:${ss}`;
+  const pct = state.intervalSec > 0 ? 100 - (remain / state.intervalSec * 100) : 0;
+  el.themaFill.style.width = pct + '%';
+}
+
+function themaTick(){
+  state.themaRemaining--;
+  if (state.themaRemaining <= 0){
+    advanceWord();
+    state.themaRemaining = state.intervalSec;
+  }
+  updateThemaDisplay();
+}
+
+function startThemaClock(){
+  stopClock();
+  ensureStarted();
+  state.themaRemaining = state.intervalSec;
+  updateThemaDisplay();
+  state.timer = setInterval(themaTick, 1000);
+}
+
+function stopClock(){
+  if (state.timer) clearInterval(state.timer);
+  state.timer = null;
+}
+
+/* ---------------- play / pause ---------------- */
+function setPlaying(p){
+  state.playing = p;
+  if (p){
+    ensureStarted();
+    el.playBtn.classList.add('playing');
+    el.playIcon.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+    el.category.textContent = 'LIVE';
+    if (state.mode === 'takt') startTaktClock(); else startThemaClock();
+  } else {
+    el.playBtn.classList.remove('playing');
+    el.playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+    el.category.textContent = 'PAUSE';
+    stopClock();
+    el.dots.forEach(d => d.classList.remove('on'));
+  }
+}
+
+/* ---------------- mode switching ---------------- */
+function setMode(mode){
+  if (state.mode === mode) return;
+  setPlaying(false);
+  state.mode = mode;
+  el.modeBtns.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  el.taktControls.classList.toggle('hidden', mode !== 'takt');
+  el.themaControls.classList.toggle('hidden', mode !== 'thema');
+  el.beatrow.classList.toggle('hidden', mode !== 'takt');
+  el.themaProgress.classList.toggle('show', mode === 'thema');
+  if (mode === 'thema') updateThemaDisplay();
+}
+el.modeBtns.forEach(btn => btn.addEventListener('click', () => setMode(btn.dataset.mode)));
+
+/* ---------------- events ---------------- */
+el.playBtn.addEventListener('click', () => setPlaying(!state.playing));
+
+el.nextBtn.addEventListener('click', () => {
+  if (!state.started){
+    ensureStarted();
+  } else {
+    advanceWord();
+  }
+  if (state.playing){
+    if (state.mode === 'takt'){
+      state.beatCount = 0;
+      stopClock();
+      state.timer = setInterval(tickBeat, intervalMs());
+      el.dots.forEach(d => d.classList.remove('on'));
+    } else {
+      state.themaRemaining = state.intervalSec;
+      updateThemaDisplay();
+      stopClock();
+      state.timer = setInterval(themaTick, 1000);
+    }
+  }
+});
+
+/* ---- BPM controls ---- */
+function setBpm(v){
+  const min = parseInt(el.bpmSlider.min, 10);
+  const max = parseInt(el.bpmSlider.max, 10);
+  state.bpm = Math.max(min, Math.min(max, v));
+  el.bpmVal.textContent = state.bpm;
+  el.bpmSlider.value = state.bpm;
+  if (state.playing && state.mode === 'takt') startTaktClock();
+}
+el.bpmSlider.addEventListener('input', (e) => setBpm(parseInt(e.target.value, 10)));
+el.bpmMinus.addEventListener('click', () => setBpm(state.bpm - 1));
+el.bpmPlus.addEventListener('click', () => setBpm(state.bpm + 1));
+
+/* ---- Tap tempo ---- */
+function handleTap(){
+  const now = performance.now();
+  const times = state.tapTimes;
+  if (times.length && now - times[times.length - 1] > 2000){
+    times.length = 0;
+  }
+  times.push(now);
+  if (times.length > 6) times.shift();
+  if (times.length >= 2){
+    const gaps = [];
+    for (let i = 1; i < times.length; i++) gaps.push(times[i] - times[i - 1]);
+    const avg = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    setBpm(Math.round(60000 / avg));
+  }
+  el.tapBtn.classList.add('tapped');
+  setTimeout(() => el.tapBtn.classList.remove('tapped'), 120);
+}
+el.tapBtn.addEventListener('click', handleTap);
+
+/* ---- Thema interval controls ---- */
+function updateIntervalState(){
+  state.intervalSec = Math.max(5, state.intervalMin * 60 + state.intervalSecPart);
+  el.minVal.textContent = String(state.intervalMin).padStart(2, '0');
+  el.secVal.textContent = String(state.intervalSecPart).padStart(2, '0');
+  el.secSlider.value = state.intervalSecPart;
+  if (state.playing && state.mode === 'thema'){
+    startThemaClock();
+  } else {
+    state.themaRemaining = state.intervalSec;
+    updateThemaDisplay();
+  }
+}
+el.minMinus.addEventListener('click', () => { state.intervalMin = Math.max(0, state.intervalMin - 1); updateIntervalState(); });
+el.minPlus.addEventListener('click', () => { state.intervalMin = Math.min(30, state.intervalMin + 1); updateIntervalState(); });
+el.secMinus.addEventListener('click', () => { state.intervalSecPart = Math.max(0, state.intervalSecPart - 1); updateIntervalState(); });
+el.secPlus.addEventListener('click', () => { state.intervalSecPart = Math.min(59, state.intervalSecPart + 1); updateIntervalState(); });
+el.secSlider.addEventListener('input', (e) => { state.intervalSecPart = parseInt(e.target.value, 10); updateIntervalState(); });
+
+/* ---- Fullscreen ---- */
+el.fsBtn.addEventListener('click', toggleFullscreen);
+el.stage.addEventListener('dblclick', toggleFullscreen);
+function toggleFullscreen(){
+  if (!document.fullscreenElement){
+    document.documentElement.requestFullscreen().catch(()=>{});
+  } else {
+    document.exitFullscreen().catch(()=>{});
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  el.app.classList.toggle('fs', !!document.fullscreenElement);
+  el.stage.classList.toggle('fs', !!document.fullscreenElement);
+  fitWord();
+});
+
+/* ---- Filter panel ---- */
+function openFilterPanel(){ el.filterOverlay.classList.add('open'); }
+function closeFilterPanel(){ el.filterOverlay.classList.remove('open'); }
+el.filterBtn.addEventListener('click', openFilterPanel);
+el.filterClose.addEventListener('click', closeFilterPanel);
+el.filterOverlay.addEventListener('click', (e) => {
+  if (e.target === el.filterOverlay) closeFilterPanel();
+});
+
+function updateLenLabel(){
+  el.lenRangeVal.textContent = `${state.lenMin}–${state.lenMax} ZEICHEN`;
+}
+el.lenMin.addEventListener('input', (e) => {
+  let v = parseInt(e.target.value, 10);
+  if (v > state.lenMax){ v = state.lenMax; e.target.value = v; }
+  state.lenMin = v;
+  updateLenLabel();
+  rebuildPool();
+});
+el.lenMax.addEventListener('input', (e) => {
+  let v = parseInt(e.target.value, 10);
+  if (v < state.lenMin){ v = state.lenMin; e.target.value = v; }
+  state.lenMax = v;
+  updateLenLabel();
+  rebuildPool();
+});
+el.complexityChips.forEach(chip => {
+  chip.addEventListener('click', () => {
+    el.complexityChips.forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.complexity = chip.dataset.c;
+    rebuildPool();
+  });
+});
+el.posChips.forEach(chip => {
+  chip.addEventListener('click', () => {
+    el.posChips.forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.pos = chip.dataset.p;
+    rebuildPool();
+  });
+});
+
+/* ---- Keyboard ---- */
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape'){ closeFilterPanel(); return; }
+  if (el.filterOverlay.classList.contains('open')) return;
+  if (e.code === 'Space'){ e.preventDefault(); setPlaying(!state.playing); }
+  if (e.code === 'KeyN'){ el.nextBtn.click(); }
+  if (e.code === 'KeyF'){ toggleFullscreen(); }
+  if (e.code === 'KeyT' && state.mode === 'takt'){ handleTap(); }
+});
+
+/* init */
+rebuildPool();
+el.category.textContent = `${WORDS.length.toLocaleString('de-DE')} WÖRTER GELADEN`;
+updateIntervalState();
+fitWord();
+</script>
+</body>
+</html>
