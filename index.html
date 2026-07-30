@@ -250,23 +250,37 @@
     color: var(--fg-dim); font-variant-numeric: tabular-nums;
   }
   #turnFlashText{
-    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.8);
+    position:fixed; top: 14px; left:50%; transform:translateX(-50%) translateY(-16px);
     font-family: 'Anton','Arial Black',Arial,sans-serif;
-    font-size: clamp(32px, 10vw, 90px);
-    color: var(--accent);
-    text-shadow: 0 0 40px rgba(255,77,28,0.8);
+    font-size: clamp(20px, 6vw, 44px);
+    color: #0a0a0a;
+    background: var(--accent);
+    padding: 8px 26px;
+    border-radius: 10px;
+    box-shadow: 0 10px 34px rgba(255,77,28,0.55);
     opacity:0; pointer-events:none;
     z-index: 25;
-    transition: none;
+    white-space: nowrap;
   }
   #turnFlashText.flash{
-    animation: turnFlashPop 0.7s ease-out;
+    animation: turnFlashBanner 2.4s cubic-bezier(.22,.9,.3,1);
   }
-  @keyframes turnFlashPop{
-    0%{ opacity:0; transform:translate(-50%,-50%) scale(0.7); }
-    15%{ opacity:1; transform:translate(-50%,-50%) scale(1.08); }
-    30%{ transform:translate(-50%,-50%) scale(1); }
-    100%{ opacity:0; transform:translate(-50%,-50%) scale(1); }
+  @keyframes turnFlashBanner{
+    0%{ opacity:0; transform:translateX(-50%) translateY(-16px); }
+    8%{ opacity:1; transform:translateX(-50%) translateY(0); }
+    82%{ opacity:1; transform:translateX(-50%) translateY(0); }
+    100%{ opacity:0; transform:translateX(-50%) translateY(-10px); }
+  }
+
+  /* Vorwarnung im letzten Bar vor dem Wechsel */
+  #turnProgress.lastBar #turnBarLabel{
+    color: var(--accent);
+    animation: lastBarPulse 0.5s ease-in-out infinite;
+  }
+  #turnProgress.lastBar #turnFill{ background: var(--accent); }
+  @keyframes lastBarPulse{
+    0%, 100%{ opacity:1; }
+    50%{ opacity:0.35; }
   }
 
   /* ---------- thema progress ---------- */
@@ -460,10 +474,11 @@
       <div class="step" id="bpmPlus" title="Schneller">+</div>
       <input type="range" id="bpmSlider" min="50" max="180" value="90" step="1">
       <div class="pillBtn" id="tapBtn" title="Im Takt tippen">TAP</div>
-      <div class="secPerBeatBlock" title="Sekunden pro Schlag – live zu BPM umgerechnet">
+      <div class="secPerBeatBlock" title="Wortwechsel alle X Sekunden – live zu BPM umgerechnet">
+        <span class="ctrlUnit">WORT ALLE</span>
+        <span class="ctrlVal" id="secPerBeatVal">5.3</span>
+        <input type="range" id="secPerBeatSlider" min="2.5" max="10" value="5.33" step="0.1">
         <span class="ctrlUnit">SEK</span>
-        <span class="ctrlVal" id="secPerBeatVal">0.67</span>
-        <input type="range" id="secPerBeatSlider" min="0.30" max="1.30" value="0.67" step="0.01">
       </div>
     </div>
 
@@ -928,6 +943,7 @@ function updateTurnDisplay(){
   const currentBar = Math.floor(posInTurn / 4) + 1;
   el.turnBarLabel.textContent = `BAR ${currentBar}/${state.turnBars}`;
   el.turnFill.style.width = ((posInTurn / turnBeats) * 100) + '%';
+  el.turnProgress.classList.toggle('lastBar', currentBar === state.turnBars);
   const beatsRemaining = turnBeats - posInTurn;
   const secRemaining = beatsRemaining * (60 / state.bpm);
   const mm = Math.floor(secRemaining / 60);
@@ -945,6 +961,7 @@ function resetTurnDisplay(){
   el.turnBarLabel.textContent = `BAR 1/${state.turnBars || 4}`;
   el.turnFill.style.width = '0%';
   el.turnCountdown.textContent = '0:00';
+  el.turnProgress.classList.remove('lastBar');
 }
 
 function intervalMs(){
@@ -1059,28 +1076,34 @@ el.nextBtn.addEventListener('click', () => {
 });
 
 /* ---- BPM controls ---- */
+// Wortwechsel passiert alle 8 Beats (siehe tickBeat/advanceWord), also
+// Sekunden-pro-Wortwechsel = 8 * (60/bpm) = 480/bpm.
+function secPerWordChange(bpm){
+  return 480 / bpm;
+}
+
 function setBpm(v){
   const min = parseInt(el.bpmSlider.min, 10);
   const max = parseInt(el.bpmSlider.max, 10);
   state.bpm = Math.max(min, Math.min(max, v));
   el.bpmVal.textContent = state.bpm;
   el.bpmSlider.value = state.bpm;
-  el.secPerBeatSlider.value = (60 / state.bpm).toFixed(2);
-  el.secPerBeatVal.textContent = (60 / state.bpm).toFixed(2);
+  el.secPerBeatSlider.value = secPerWordChange(state.bpm).toFixed(1);
+  el.secPerBeatVal.textContent = secPerWordChange(state.bpm).toFixed(1);
   if (state.playing && state.mode !== 'thema') startBeatClock();
 }
 el.bpmSlider.addEventListener('input', (e) => setBpm(parseInt(e.target.value, 10)));
 el.bpmMinus.addEventListener('click', () => setBpm(state.bpm - 1));
 el.bpmPlus.addEventListener('click', () => setBpm(state.bpm + 1));
 
-// Alternative Eingabe: Sekunden pro Schlag als Regler, live (kein Enter/Blur
-// nötig) zu BPM umgerechnet -> praktisch, wenn man die Taktlänge z.B. aus
-// einer DAW oder einem Beat schon in Sekunden kennt.
+// Alternative Eingabe: "Wort alle X Sekunden" als Regler, live (kein
+// Enter/Blur nötig) zu BPM umgerechnet. Beispiel: 6 Sekunden eingeben ->
+// alle 6 Sekunden erscheint ein neues Wort.
 el.secPerBeatSlider.addEventListener('input', (e) => {
   const sec = parseFloat(e.target.value);
-  el.secPerBeatVal.textContent = sec.toFixed(2);
+  el.secPerBeatVal.textContent = sec.toFixed(1);
   if (sec > 0 && isFinite(sec)){
-    setBpm(Math.round(60 / sec));
+    setBpm(Math.round(480 / sec));
   }
 });
 
@@ -1306,8 +1329,8 @@ rebuildPools();
 el.category.textContent = `${WORDS.length.toLocaleString('de-DE')} WÖRTER GELADEN`;
 updateIntervalState();
 fitWord();
-el.secPerBeatSlider.value = (60 / state.bpm).toFixed(2);
-el.secPerBeatVal.textContent = (60 / state.bpm).toFixed(2);
+el.secPerBeatSlider.value = secPerWordChange(state.bpm).toFixed(1);
+el.secPerBeatVal.textContent = secPerWordChange(state.bpm).toFixed(1);
 </script>
 </body>
 </html>
