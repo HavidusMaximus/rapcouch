@@ -220,14 +220,7 @@
 
   /* ---------- sekunden pro schlag ---------- */
   .secPerBeatBlock{ display:flex; align-items:center; gap:6px; }
-  #secPerBeatInput{
-    width:52px; background: var(--bg-raised); border:1px solid var(--line);
-    border-radius:4px; color: var(--fg); font-family:'JetBrains Mono',monospace;
-    font-size:12px; padding:5px 6px; text-align:center; outline:none;
-    -moz-appearance: textfield;
-  }
-  #secPerBeatInput::-webkit-outer-spin-button,
-  #secPerBeatInput::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+  .secPerBeatBlock input[type=range]{ width: 80px; }
 
   /* ---------- wechsel-anzeige (bars pro turn) ---------- */
   #turnRow{
@@ -274,15 +267,6 @@
     15%{ opacity:1; transform:translate(-50%,-50%) scale(1.08); }
     30%{ transform:translate(-50%,-50%) scale(1); }
     100%{ opacity:0; transform:translate(-50%,-50%) scale(1); }
-  }
-  #app.turnBorderFlash::before{
-    content:''; position:fixed; inset:0; pointer-events:none; z-index:24;
-    border: 8px solid var(--accent);
-    animation: turnBorderPulse 0.7s ease-out;
-  }
-  @keyframes turnBorderPulse{
-    0%{ opacity:1; }
-    100%{ opacity:0; }
   }
 
   /* ---------- thema progress ---------- */
@@ -476,9 +460,10 @@
       <div class="step" id="bpmPlus" title="Schneller">+</div>
       <input type="range" id="bpmSlider" min="50" max="180" value="90" step="1">
       <div class="pillBtn" id="tapBtn" title="Im Takt tippen">TAP</div>
-      <div class="secPerBeatBlock" title="Sekunden pro Schlag direkt eingeben">
-        <input type="number" id="secPerBeatInput" min="0.1" max="10" step="0.01">
-        <span class="ctrlUnit">SEK/SCHLAG</span>
+      <div class="secPerBeatBlock" title="Sekunden pro Schlag – live zu BPM umgerechnet">
+        <span class="ctrlUnit">SEK</span>
+        <span class="ctrlVal" id="secPerBeatVal">0.67</span>
+        <input type="range" id="secPerBeatSlider" min="0.30" max="1.30" value="0.67" step="0.01">
       </div>
     </div>
 
@@ -684,7 +669,8 @@ const el = {
   secMinus: document.getElementById('secMinus'),
   secPlus: document.getElementById('secPlus'),
   secSlider: document.getElementById('secSlider'),
-  secPerBeatInput: document.getElementById('secPerBeatInput'),
+  secPerBeatSlider: document.getElementById('secPerBeatSlider'),
+  secPerBeatVal: document.getElementById('secPerBeatVal'),
   turnChips: Array.from(document.querySelectorAll('#turnChips .chip')),
   turnRow: document.getElementById('turnRow'),
   turnProgress: document.getElementById('turnProgress'),
@@ -953,9 +939,6 @@ function triggerTurnFlash(){
   el.turnFlashText.classList.remove('flash');
   void el.turnFlashText.offsetWidth; // Reflow erzwingen, damit die Animation neu startet
   el.turnFlashText.classList.add('flash');
-  el.app.classList.remove('turnBorderFlash');
-  void el.app.offsetWidth;
-  el.app.classList.add('turnBorderFlash');
 }
 
 function resetTurnDisplay(){
@@ -1082,22 +1065,22 @@ function setBpm(v){
   state.bpm = Math.max(min, Math.min(max, v));
   el.bpmVal.textContent = state.bpm;
   el.bpmSlider.value = state.bpm;
-  el.secPerBeatInput.value = (60 / state.bpm).toFixed(2);
+  el.secPerBeatSlider.value = (60 / state.bpm).toFixed(2);
+  el.secPerBeatVal.textContent = (60 / state.bpm).toFixed(2);
   if (state.playing && state.mode !== 'thema') startBeatClock();
 }
 el.bpmSlider.addEventListener('input', (e) => setBpm(parseInt(e.target.value, 10)));
 el.bpmMinus.addEventListener('click', () => setBpm(state.bpm - 1));
 el.bpmPlus.addEventListener('click', () => setBpm(state.bpm + 1));
 
-// Alternative Eingabe: Sekunden pro Schlag direkt eintippen -> wird zu BPM
-// umgerechnet (BPM = 60 / Sekunden). Praktisch, wenn man z.B. die Taktlänge
-// aus einer DAW oder einem Beat schon in Sekunden kennt.
-el.secPerBeatInput.addEventListener('change', (e) => {
+// Alternative Eingabe: Sekunden pro Schlag als Regler, live (kein Enter/Blur
+// nötig) zu BPM umgerechnet -> praktisch, wenn man die Taktlänge z.B. aus
+// einer DAW oder einem Beat schon in Sekunden kennt.
+el.secPerBeatSlider.addEventListener('input', (e) => {
   const sec = parseFloat(e.target.value);
+  el.secPerBeatVal.textContent = sec.toFixed(2);
   if (sec > 0 && isFinite(sec)){
     setBpm(Math.round(60 / sec));
-  } else {
-    el.secPerBeatInput.value = (60 / state.bpm).toFixed(2);
   }
 });
 
@@ -1323,7 +1306,8 @@ rebuildPools();
 el.category.textContent = `${WORDS.length.toLocaleString('de-DE')} WÖRTER GELADEN`;
 updateIntervalState();
 fitWord();
-el.secPerBeatInput.value = (60 / state.bpm).toFixed(2);
+el.secPerBeatSlider.value = (60 / state.bpm).toFixed(2);
+el.secPerBeatVal.textContent = (60 / state.bpm).toFixed(2);
 </script>
 </body>
 </html>
