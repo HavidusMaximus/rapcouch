@@ -218,6 +218,73 @@
     box-shadow: 0 0 16px rgba(255,77,28,0.7);
   }
 
+  /* ---------- sekunden pro schlag ---------- */
+  .secPerBeatBlock{ display:flex; align-items:center; gap:6px; }
+  #secPerBeatInput{
+    width:52px; background: var(--bg-raised); border:1px solid var(--line);
+    border-radius:4px; color: var(--fg); font-family:'JetBrains Mono',monospace;
+    font-size:12px; padding:5px 6px; text-align:center; outline:none;
+    -moz-appearance: textfield;
+  }
+  #secPerBeatInput::-webkit-outer-spin-button,
+  #secPerBeatInput::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+
+  /* ---------- wechsel-anzeige (bars pro turn) ---------- */
+  #turnRow{
+    display:flex; flex-direction:column; align-items:center; gap:8px;
+  }
+  #turnRow.hidden{ display:none; }
+  #turnProgress{
+    display:none;
+    flex-direction:column; align-items:center; gap:6px;
+    width:100%;
+  }
+  #turnProgress.show{ display:flex; }
+  #turnBarLabel{
+    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em;
+    color: var(--fg-dim); font-weight:700;
+  }
+  #turnTrack{
+    width: 200px; max-width: 60vw; height:4px;
+    background: var(--line); border-radius:2px; overflow:hidden;
+  }
+  #turnFill{
+    height:100%; width:0%; background: var(--accent);
+    transition: width 0.1s linear;
+  }
+  #turnCountdown{
+    font-family:'JetBrains Mono',monospace; font-size:11px;
+    color: var(--fg-dim); font-variant-numeric: tabular-nums;
+  }
+  #turnFlashText{
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.8);
+    font-family: 'Anton','Arial Black',Arial,sans-serif;
+    font-size: clamp(32px, 10vw, 90px);
+    color: var(--accent);
+    text-shadow: 0 0 40px rgba(255,77,28,0.8);
+    opacity:0; pointer-events:none;
+    z-index: 25;
+    transition: none;
+  }
+  #turnFlashText.flash{
+    animation: turnFlashPop 0.7s ease-out;
+  }
+  @keyframes turnFlashPop{
+    0%{ opacity:0; transform:translate(-50%,-50%) scale(0.7); }
+    15%{ opacity:1; transform:translate(-50%,-50%) scale(1.08); }
+    30%{ transform:translate(-50%,-50%) scale(1); }
+    100%{ opacity:0; transform:translate(-50%,-50%) scale(1); }
+  }
+  #app.turnBorderFlash::before{
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:24;
+    border: 8px solid var(--accent);
+    animation: turnBorderPulse 0.7s ease-out;
+  }
+  @keyframes turnBorderPulse{
+    0%{ opacity:1; }
+    100%{ opacity:0; }
+  }
+
   /* ---------- thema progress ---------- */
   #themaProgress{
     display:none;
@@ -374,7 +441,7 @@
 
   #app.fs #topbar, #app.fs #hint, #app.fs #modeRow, #app.fs #categoryRow{ opacity:0.15; transition: opacity 0.3s; }
   #app.fs:hover #topbar, #app.fs:hover #hint, #app.fs:hover #modeRow, #app.fs:hover #categoryRow{ opacity:1; }
-  #app.fs #beatrow, #app.fs #themaProgress{ opacity:0.4; }
+  #app.fs #beatrow, #app.fs #themaProgress, #app.fs #turnRow{ opacity:0.4; }
 
   @media (max-width: 480px){
     input[type=range]{ width: 64px; }
@@ -409,6 +476,10 @@
       <div class="step" id="bpmPlus" title="Schneller">+</div>
       <input type="range" id="bpmSlider" min="50" max="180" value="90" step="1">
       <div class="pillBtn" id="tapBtn" title="Im Takt tippen">TAP</div>
+      <div class="secPerBeatBlock" title="Sekunden pro Schlag direkt eingeben">
+        <input type="number" id="secPerBeatInput" min="0.1" max="10" step="0.01">
+        <span class="ctrlUnit">SEK/SCHLAG</span>
+      </div>
     </div>
 
     <div id="themaControls" class="modeControls hidden">
@@ -446,6 +517,23 @@
     <div class="dot" data-b="3"></div>
     <div class="dot four" data-b="4"></div>
   </div>
+
+  <div id="turnRow">
+    <div class="chipRow" id="turnChips">
+      <div class="chip active" data-bars="0">Aus</div>
+      <div class="chip" data-bars="2">2 Bars</div>
+      <div class="chip" data-bars="4">4 Bars</div>
+      <div class="chip" data-bars="8">8 Bars</div>
+      <div class="chip" data-bars="16">16 Bars</div>
+    </div>
+    <div id="turnProgress">
+      <div id="turnBarLabel">BAR 1/4</div>
+      <div id="turnTrack"><div id="turnFill"></div></div>
+      <div id="turnCountdown">0:00</div>
+    </div>
+  </div>
+
+  <div id="turnFlashText">WECHSEL!</div>
 
   <div id="themaProgress">
     <div id="themaTrack"><div id="themaFill"></div></div>
@@ -575,6 +663,8 @@ const state = {
   customTopics: [],
   useCustomTopics: false,
   tapTimes: [],
+  turnBars: 0,       // 0 = aus; sonst 2/4/8/16
+  turnEnabled: false,
 };
 
 const el = {
@@ -594,6 +684,15 @@ const el = {
   secMinus: document.getElementById('secMinus'),
   secPlus: document.getElementById('secPlus'),
   secSlider: document.getElementById('secSlider'),
+  secPerBeatInput: document.getElementById('secPerBeatInput'),
+  turnChips: Array.from(document.querySelectorAll('#turnChips .chip')),
+  turnRow: document.getElementById('turnRow'),
+  turnProgress: document.getElementById('turnProgress'),
+  turnBarLabel: document.getElementById('turnBarLabel'),
+  turnTrack: document.getElementById('turnTrack'),
+  turnFill: document.getElementById('turnFill'),
+  turnCountdown: document.getElementById('turnCountdown'),
+  turnFlashText: document.getElementById('turnFlashText'),
   taktControls: document.getElementById('taktControls'),
   themaControls: document.getElementById('themaControls'),
   categoryRow: document.getElementById('categoryRow'),
@@ -823,7 +922,46 @@ function tickBeat(){
   if (state.beatCount % 8 === 7){
     advanceWord();
   }
+
+  if (state.turnEnabled){
+    updateTurnDisplay();
+    const turnBeats = state.turnBars * 4;
+    if (state.beatCount % turnBeats === turnBeats - 1){
+      triggerTurnFlash();
+    }
+  }
+
   state.beatCount++;
+}
+
+// Wechsel-Anzeige: signalisiert alle 2/4/8/16 Bars, wenn der/die nächste
+// Rapper/in im Cypher übernehmen soll. Läuft synchron zum Beat-Takt.
+function updateTurnDisplay(){
+  const turnBeats = state.turnBars * 4;
+  const posInTurn = state.beatCount % turnBeats;
+  const currentBar = Math.floor(posInTurn / 4) + 1;
+  el.turnBarLabel.textContent = `BAR ${currentBar}/${state.turnBars}`;
+  el.turnFill.style.width = ((posInTurn / turnBeats) * 100) + '%';
+  const beatsRemaining = turnBeats - posInTurn;
+  const secRemaining = beatsRemaining * (60 / state.bpm);
+  const mm = Math.floor(secRemaining / 60);
+  const ss = String(Math.round(secRemaining % 60)).padStart(2, '0');
+  el.turnCountdown.textContent = `${mm}:${ss}`;
+}
+
+function triggerTurnFlash(){
+  el.turnFlashText.classList.remove('flash');
+  void el.turnFlashText.offsetWidth; // Reflow erzwingen, damit die Animation neu startet
+  el.turnFlashText.classList.add('flash');
+  el.app.classList.remove('turnBorderFlash');
+  void el.app.offsetWidth;
+  el.app.classList.add('turnBorderFlash');
+}
+
+function resetTurnDisplay(){
+  el.turnBarLabel.textContent = `BAR 1/${state.turnBars || 4}`;
+  el.turnFill.style.width = '0%';
+  el.turnCountdown.textContent = '0:00';
 }
 
 function intervalMs(){
@@ -902,6 +1040,7 @@ function setMode(mode){
   el.themaControls.classList.toggle('hidden', mode !== 'thema');
   el.categoryRow.classList.toggle('hidden', mode !== 'kategorie');
   el.beatrow.classList.toggle('hidden', mode === 'thema');
+  el.turnRow.classList.toggle('hidden', mode === 'thema');
   el.themaProgress.classList.toggle('show', mode === 'thema');
   if (mode === 'thema') updateThemaDisplay();
   if (mode === 'kategorie') rebuildPools();
@@ -923,6 +1062,7 @@ function resyncClock(){
     stopClock();
     state.timer = setInterval(tickBeat, intervalMs());
     el.dots.forEach(d => d.classList.remove('on'));
+    if (state.turnEnabled) resetTurnDisplay();
   }
 }
 
@@ -942,11 +1082,37 @@ function setBpm(v){
   state.bpm = Math.max(min, Math.min(max, v));
   el.bpmVal.textContent = state.bpm;
   el.bpmSlider.value = state.bpm;
+  el.secPerBeatInput.value = (60 / state.bpm).toFixed(2);
   if (state.playing && state.mode !== 'thema') startBeatClock();
 }
 el.bpmSlider.addEventListener('input', (e) => setBpm(parseInt(e.target.value, 10)));
 el.bpmMinus.addEventListener('click', () => setBpm(state.bpm - 1));
 el.bpmPlus.addEventListener('click', () => setBpm(state.bpm + 1));
+
+// Alternative Eingabe: Sekunden pro Schlag direkt eintippen -> wird zu BPM
+// umgerechnet (BPM = 60 / Sekunden). Praktisch, wenn man z.B. die Taktlänge
+// aus einer DAW oder einem Beat schon in Sekunden kennt.
+el.secPerBeatInput.addEventListener('change', (e) => {
+  const sec = parseFloat(e.target.value);
+  if (sec > 0 && isFinite(sec)){
+    setBpm(Math.round(60 / sec));
+  } else {
+    el.secPerBeatInput.value = (60 / state.bpm).toFixed(2);
+  }
+});
+
+/* ---- Wechsel-Anzeige (Bars pro Turn) ---- */
+el.turnChips.forEach(chip => {
+  chip.addEventListener('click', () => {
+    el.turnChips.forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    const bars = parseInt(chip.dataset.bars, 10);
+    state.turnBars = bars;
+    state.turnEnabled = bars > 0;
+    el.turnProgress.classList.toggle('show', state.turnEnabled);
+    if (state.turnEnabled) resetTurnDisplay();
+  });
+});
 
 /* ---- Tap tempo ---- */
 function handleTap(){
@@ -1157,6 +1323,7 @@ rebuildPools();
 el.category.textContent = `${WORDS.length.toLocaleString('de-DE')} WÖRTER GELADEN`;
 updateIntervalState();
 fitWord();
+el.secPerBeatInput.value = (60 / state.bpm).toFixed(2);
 </script>
 </body>
 </html>
