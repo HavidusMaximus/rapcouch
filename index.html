@@ -429,57 +429,6 @@
     font-size:10px; letter-spacing:0.1em; color: var(--fg-dim);
   }
 
-  /* ---------- multiplayer panel ---------- */
-  #mpOverlay{
-    position:fixed; inset:0; background:rgba(0,0,0,0.55);
-    display:none; align-items:flex-end; justify-content:center;
-    z-index:20;
-  }
-  #mpOverlay.open{ display:flex; }
-  #mpPanel{
-    width:100%; max-width:420px;
-    background: var(--bg-raised);
-    border: 1px solid var(--line);
-    border-bottom:none;
-    border-radius: 14px 14px 0 0;
-    padding: 18px 22px 26px;
-  }
-  #mpStatus{
-    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.06em;
-    color: var(--fg-dim); margin-bottom:16px; text-align:center;
-  }
-  #mpStatus.live{ color: var(--accent); }
-  #mpSessionCodeBox{
-    display:flex; align-items:center; gap:8px;
-    background: var(--bg); border:1px solid var(--line); border-radius:8px;
-    padding:10px 12px;
-  }
-  #mpSessionCodeText{
-    flex:1; font-family:'JetBrains Mono',monospace; font-size:15px; font-weight:700;
-    color: var(--fg); letter-spacing:0.05em;
-  }
-  .spBtnSecondaryLike{
-    background: var(--bg-raised); border:1px solid var(--line); border-radius:6px;
-    color: var(--fg); font-size:10px; padding:6px 10px; cursor:pointer;
-    text-align:center; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;
-  }
-  #mpUserCount{ margin-top:6px; text-align:center; }
-  .spBtn{
-    padding:10px 16px; border-radius:8px;
-    background: var(--accent); border:none;
-    color:#0a0a0a; font-weight:700; font-size:12px; letter-spacing:0.06em;
-    cursor:pointer; text-align:center;
-  }
-  #mpJoinRow{ display:flex; gap:8px; }
-  #mpJoinRow input[type=text]{
-    flex:1; background: var(--bg); border:1px solid var(--line); border-radius:8px;
-    color: var(--fg); font-family:'JetBrains Mono',monospace; font-size:13px;
-    padding:10px; outline:none;
-  }
-  #mpJoinRow input::placeholder{ color: var(--fg-dim); }
-  #mpBtn.active{ border-color: var(--accent); color: var(--accent); }
-  #mpBtn.active .dot-badge{ display:block; }
-
   #hint{
     text-align:center;
     font-family:'JetBrains Mono',monospace;
@@ -506,10 +455,6 @@
   <div id="topbar">
     <div class="brand">RAP<b>COUCH</b></div>
     <div id="topbarRight">
-      <div class="iconbtn" id="mpBtn" title="Multiplayer">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.6"/><path d="M2.5 20c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6"/><path d="M14.5 14.3c2.4.3 4 2.4 4 5.7"/></svg>
-        <div class="dot-badge"></div>
-      </div>
       <div class="iconbtn" id="fsBtn" title="Vollbild">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
       </div>
@@ -687,52 +632,9 @@
   </div>
 </div>
 
-<div id="mpOverlay">
-  <div id="mpPanel">
-    <div class="filterHead">
-      <span>MULTIPLAYER</span>
-      <div id="mpClose">×</div>
-    </div>
-
-    <div id="mpUnavailable" class="hintSmall" style="display:none;">
-      Multiplayer ist auf dieser Seite noch nicht eingerichtet (fehlende Firebase-Konfiguration).
-    </div>
-
-    <div id="mpBody">
-      <div id="mpStatus">Verbinde...</div>
-
-      <div class="filterRow">
-        <div class="filterLabel"><span>AKTUELLE SESSION</span></div>
-        <div id="mpSessionCodeBox">
-          <code id="mpSessionCodeText">public</code>
-          <div id="mpCopyCodeBtn" class="spBtnSecondaryLike">Kopieren</div>
-        </div>
-        <div class="hintSmall" id="mpUserCount"></div>
-      </div>
-
-      <div class="filterRow">
-        <div class="spBtn" id="mpCreateBtn" style="margin-bottom:8px;">Eigene Session erstellen</div>
-        <div id="mpJoinRow">
-          <input type="text" id="mpJoinInput" placeholder="Session-Code eingeben...">
-          <div class="spBtn" id="mpJoinBtn">Beitreten</div>
-        </div>
-        <div class="spBtnSecondaryLike" id="mpLeaveBtn" style="margin-top:10px; display:none;">Zurück zur Standard-Session</div>
-      </div>
-
-      <div class="hintSmall">
-        Alle in derselben Session sehen exakt dieselben Wörter zur selben Zeit (auch BPM, Modus
-        und Filter werden übertragen). Standardmäßig sind alle Besucher in der Session "public".
-      </div>
-    </div>
-  </div>
-</div>
-
 <script src="words.js"></script>
 <script src="pos.js"></script>
 <script src="categories.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
-<script src="firebase-config.js"></script>
 <script>
 
 /* ---------------- state ---------------- */
@@ -763,16 +665,6 @@ const state = {
   tapTimes: [],
   turnBars: 0,       // 0 = aus; sonst 2/4/8/16
   turnEnabled: false,
-  mp: {
-    available: false,   // Firebase konfiguriert & erreichbar
-    sessionId: 'public',
-    seed: null,
-    startedAt: null,
-    lastWordChangeNumber: null,
-    applyingRemote: false,
-    ref: null,
-    presenceRef: null,
-  },
 };
 
 const el = {
@@ -836,19 +728,6 @@ const el = {
   topicsList: document.getElementById('topicsList'),
   topicsInfo: document.getElementById('topicsInfo'),
   useCustomTopics: document.getElementById('useCustomTopics'),
-  mpBtn: document.getElementById('mpBtn'),
-  mpOverlay: document.getElementById('mpOverlay'),
-  mpClose: document.getElementById('mpClose'),
-  mpUnavailable: document.getElementById('mpUnavailable'),
-  mpBody: document.getElementById('mpBody'),
-  mpStatus: document.getElementById('mpStatus'),
-  mpSessionCodeText: document.getElementById('mpSessionCodeText'),
-  mpCopyCodeBtn: document.getElementById('mpCopyCodeBtn'),
-  mpUserCount: document.getElementById('mpUserCount'),
-  mpCreateBtn: document.getElementById('mpCreateBtn'),
-  mpJoinInput: document.getElementById('mpJoinInput'),
-  mpJoinBtn: document.getElementById('mpJoinBtn'),
-  mpLeaveBtn: document.getElementById('mpLeaveBtn'),
 };
 
 /* ---------------- word meta & filtering ---------------- */
@@ -951,7 +830,6 @@ function rebuildPools(){
   el.filterBtn.classList.toggle('active',
     state.lenMin > 4 || state.lenMax < 12 || state.complexity !== 'alle' || state.posSet.size > 0);
   refreshNextWord();
-  pushMpState();
 }
 
 function currentWordSource(){
@@ -1038,21 +916,11 @@ window.addEventListener('resize', fitWord);
 // Gilt für TAKT und KATEGORIE (beide beat-synchron, nur der Wortpool
 // unterscheidet sich).
 function tickBeat(){
-  if (state.mp.active && state.mp.startedAt){
-    state.beatCount = Math.floor((Date.now() - state.mp.startedAt) / intervalMs());
-  }
-
   const beatInBar = state.beatCount % 4;
   el.dots.forEach(d => d.classList.remove('on'));
   el.dots[beatInBar].classList.add('on');
 
-  if (state.mp.active){
-    const wordChangeNumber = Math.floor(state.beatCount / 8);
-    if (wordChangeNumber !== state.mp.lastWordChangeNumber){
-      state.mp.lastWordChangeNumber = wordChangeNumber;
-      applyMpWordAt(wordChangeNumber);
-    }
-  } else if (state.beatCount % 8 === 7){
+  if (state.beatCount % 8 === 7){
     advanceWord();
   }
 
@@ -1064,7 +932,7 @@ function tickBeat(){
     }
   }
 
-  if (!state.mp.active) state.beatCount++;
+  state.beatCount++;
 }
 
 // Wechsel-Anzeige: signalisiert alle 2/4/8/16 Bars, wenn der/die nächste
@@ -1118,30 +986,19 @@ function updateThemaDisplay(){
 }
 
 function themaTick(){
-  if (state.mp.active && state.mp.startedAt){
-    const elapsedSec = Math.floor((Date.now() - state.mp.startedAt) / 1000);
-    const wordChangeNumber = Math.floor(elapsedSec / state.intervalSec);
-    state.themaRemaining = state.intervalSec - (elapsedSec % state.intervalSec);
-    if (wordChangeNumber !== state.mp.lastWordChangeNumber){
-      state.mp.lastWordChangeNumber = wordChangeNumber;
-      applyMpWordAt(wordChangeNumber);
-    }
-  } else {
-    state.themaRemaining--;
-    if (state.themaRemaining <= 0){
-      advanceWord();
-      state.themaRemaining = state.intervalSec;
-    }
+  state.themaRemaining--;
+  if (state.themaRemaining <= 0){
+    advanceWord();
+    state.themaRemaining = state.intervalSec;
   }
   updateThemaDisplay();
 }
 
 function startThemaClock(){
   stopClock();
-  if (!state.mp.active) ensureStarted();
+  ensureStarted();
   state.themaRemaining = state.intervalSec;
   updateThemaDisplay();
-  if (state.mp.active) themaTick();
   state.timer = setInterval(themaTick, 1000);
 }
 
@@ -1154,7 +1011,6 @@ function stopClock(){
 function setPlaying(p){
   state.playing = p;
   if (p){
-    if (state.mp.active) state.mp.startedAt = Date.now();
     ensureStarted();
     el.playBtn.classList.add('playing');
     el.playIcon.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
@@ -1167,7 +1023,6 @@ function setPlaying(p){
     stopClock();
     el.dots.forEach(d => d.classList.remove('on'));
   }
-  pushMpState();
 }
 
 /* ---------------- mode switching ---------------- */
@@ -1189,7 +1044,6 @@ function setMode(mode){
   el.themaProgress.classList.toggle('show', mode === 'thema');
   if (mode === 'thema') updateThemaDisplay();
   if (mode === 'kategorie') rebuildPools();
-  pushMpState();
 }
 el.modeBtns.forEach(btn => btn.addEventListener('click', () => setMode(btn.dataset.mode)));
 
@@ -1213,13 +1067,6 @@ function resyncClock(){
 }
 
 el.nextBtn.addEventListener('click', () => {
-  if (state.mp.active && state.mp.startedAt){
-    const wordIntervalMs = state.mode === 'thema' ? state.intervalSec * 1000 : 8 * intervalMs();
-    state.mp.startedAt -= wordIntervalMs;
-    pushMpState();
-    if (state.mode === 'thema') themaTick(); else tickBeat();
-    return;
-  }
   if (!state.started){
     ensureStarted();
   } else {
@@ -1244,7 +1091,6 @@ function setBpm(v){
   el.secPerBeatSlider.value = secPerWordChange(state.bpm).toFixed(1);
   el.secPerBeatVal.textContent = secPerWordChange(state.bpm).toFixed(1);
   if (state.playing && state.mode !== 'thema') startBeatClock();
-  pushMpState();
 }
 el.bpmSlider.addEventListener('input', (e) => setBpm(parseInt(e.target.value, 10)));
 el.bpmMinus.addEventListener('click', () => setBpm(state.bpm - 1));
@@ -1271,7 +1117,6 @@ el.turnChips.forEach(chip => {
     state.turnEnabled = bars > 0;
     el.turnProgress.classList.toggle('show', state.turnEnabled);
     if (state.turnEnabled) resetTurnDisplay();
-    pushMpState();
   });
 });
 
@@ -1465,230 +1310,10 @@ el.useCustomTopics.addEventListener('change', (e) => {
   refreshNextWord();
 });
 
-/* ---- Multiplayer (Firebase Realtime Database) ---- */
-// Prinzip: Statt einzelne "nächstes Wort"-Events zu übertragen (fehleranfällig
-// bei Netzwerk-Latenz), synchronisieren wir nur einen Startzeitpunkt + einen
-// Seed. Jedes Gerät berechnet daraus lokal und rein deterministisch, welches
-// Wort gerade dran ist -> immun gegen Verzögerung, funktioniert auch für
-// später beitretende Geräte sofort korrekt.
-
-function mulberry32(seed){
-  let a = seed >>> 0;
-  return function(){
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function hashStr(str){
-  let hash = 0;
-  for (let i = 0; i < str.length; i++){
-    hash = (Math.imul(hash, 31) + str.charCodeAt(i)) | 0;
-  }
-  return hash >>> 0;
-}
-function deterministicWordAt(pool, seed, index){
-  if (!pool || !pool.length) return '';
-  const rng = mulberry32(hashStr(seed + ':' + index));
-  return pool[Math.floor(rng() * pool.length)];
-}
-function generateSessionCode(){
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ohne verwechselbare Zeichen
-  let code = '';
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-  return code;
-}
-function generateSeed(){
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-const DEFAULT_SESSION_SEED = 'rapcouch-public-v1';
-
-function applyMpWordAt(index){
-  const pool = currentWordSource();
-  state.prevWord = index > 0 ? deterministicWordAt(pool, state.mp.seed, index - 1) : '';
-  state.currentWord = deterministicWordAt(pool, state.mp.seed, index);
-  state.nextWord = deterministicWordAt(pool, state.mp.seed, index + 1);
-  state.started = true;
-  renderWords();
-  el.word.classList.add('hit');
-  setTimeout(() => el.word.classList.remove('hit'), 180);
-}
-
-function pushMpState(){
-  if (!state.mp.available || !state.mp.ref || state.mp.applyingRemote) return;
-  state.mp.ref.update({
-    mode: state.mode,
-    bpm: state.bpm,
-    turnBars: state.turnBars,
-    lenMin: state.lenMin,
-    lenMax: state.lenMax,
-    complexity: state.complexity,
-    posSet: Array.from(state.posSet),
-    activeCategory: state.activeCategory,
-    playing: state.playing,
-    seed: state.mp.seed,
-    startedAt: state.mp.startedAt,
-  });
-}
-
-function applyRemoteSnapshot(data){
-  if (!data) return;
-  state.mp.applyingRemote = true;
-
-  if (data.seed) state.mp.seed = data.seed;
-  state.mp.startedAt = data.startedAt || null;
-  state.mp.lastWordChangeNumber = null;
-
-  if (data.mode && data.mode !== state.mode) setMode(data.mode);
-  if (typeof data.bpm === 'number') setBpm(data.bpm);
-
-  if (typeof data.lenMin === 'number'){
-    state.lenMin = data.lenMin; el.lenMin.value = data.lenMin;
-  }
-  if (typeof data.lenMax === 'number'){
-    state.lenMax = data.lenMax; el.lenMax.value = data.lenMax;
-  }
-  updateLenLabel();
-  if (data.complexity){
-    state.complexity = data.complexity;
-    el.complexityChips.forEach(c => c.classList.toggle('active', c.dataset.c === data.complexity));
-  }
-  if (Array.isArray(data.posSet)){
-    state.posSet = new Set(data.posSet);
-    updatePosChipsUI();
-  }
-  if (data.activeCategory){
-    state.activeCategory = data.activeCategory;
-    document.querySelectorAll('#categoryChips .chip').forEach(c =>
-      c.classList.toggle('active', c.dataset.cat === data.activeCategory));
-  }
-  rebuildPools();
-
-  const turnChip = Array.from(el.turnChips).find(c => parseInt(c.dataset.bars, 10) === (data.turnBars || 0));
-  if (turnChip) turnChip.click();
-
-  if (typeof data.playing === 'boolean' && data.playing !== state.playing){
-    setPlaying(data.playing);
-  }
-
-  state.mp.active = true;
-  state.mp.applyingRemote = false;
-}
-
-function detachSession(){
-  if (state.mp.ref) state.mp.ref.off();
-  if (state.mp.presenceRef) state.mp.presenceRef.remove().catch(() => {});
-  state.mp.ref = null;
-  state.mp.presenceRef = null;
-  state.mp.active = false;
-}
-
-function joinSession(sessionId){
-  if (!state.mp.available) return;
-  detachSession();
-  state.mp.sessionId = sessionId;
-  el.mpSessionCodeText.textContent = sessionId;
-  el.mpLeaveBtn.style.display = sessionId === 'public' ? 'none' : '';
-
-  const db = firebase.database();
-  const ref = db.ref('sessions/' + sessionId + '/state');
-  state.mp.ref = ref;
-
-  ref.on('value', (snap) => {
-    const data = snap.val();
-    if (data){
-      applyRemoteSnapshot(data);
-      el.mpStatus.textContent = 'Verbunden – live synchronisiert';
-      el.mpStatus.classList.add('live');
-    } else if (sessionId === 'public'){
-      // Öffentliche Session existiert noch nicht -> mit festem Seed anlegen
-      state.mp.seed = DEFAULT_SESSION_SEED;
-      state.mp.active = true;
-      el.mpStatus.textContent = 'Verbunden – live synchronisiert';
-      el.mpStatus.classList.add('live');
-    }
-  }, () => {
-    el.mpStatus.textContent = 'Verbindung fehlgeschlagen.';
-    el.mpStatus.classList.remove('live');
-  });
-
-  // Presence: einfacher Live-Zähler, entfernt sich selbst bei Verbindungsabbruch
-  const presenceListRef = db.ref('sessions/' + sessionId + '/presence');
-  const myPresenceRef = presenceListRef.push();
-  state.mp.presenceRef = myPresenceRef;
-  myPresenceRef.onDisconnect().remove();
-  myPresenceRef.set(true);
-  presenceListRef.on('value', (snap) => {
-    const count = snap.exists() ? Object.keys(snap.val()).length : 0;
-    el.mpUserCount.textContent = `${count} Gerät${count === 1 ? '' : 'e'} verbunden`;
-  });
-}
-
-function createNewSession(){
-  if (!state.mp.available) return;
-  const code = generateSessionCode();
-  state.mp.seed = generateSeed();
-  state.mp.startedAt = Date.now();
-  joinSession(code);
-  // Initialzustand direkt mit dem aktuellen lokalen Setup anlegen
-  setTimeout(() => pushMpState(), 300);
-}
-
-function initMultiplayer(){
-  const cfg = typeof FIREBASE_CONFIG !== 'undefined' ? FIREBASE_CONFIG : null;
-  const looksConfigured = cfg && cfg.apiKey && !cfg.apiKey.includes('DEIN_') && cfg.databaseURL && !cfg.databaseURL.includes('DEIN_');
-  if (!looksConfigured || typeof firebase === 'undefined'){
-    state.mp.available = false;
-    el.mpUnavailable.style.display = '';
-    el.mpBody.style.display = 'none';
-    return;
-  }
-  try {
-    firebase.initializeApp(cfg);
-    state.mp.available = true;
-    el.mpUnavailable.style.display = 'none';
-    el.mpBody.style.display = '';
-    joinSession('public');
-  } catch (e){
-    state.mp.available = false;
-    el.mpUnavailable.style.display = '';
-    el.mpBody.style.display = 'none';
-  }
-}
-
-/* ---- Multiplayer UI ---- */
-function openMpPanel(){ el.mpOverlay.classList.add('open'); }
-function closeMpPanel(){ el.mpOverlay.classList.remove('open'); }
-el.mpBtn.addEventListener('click', openMpPanel);
-el.mpClose.addEventListener('click', closeMpPanel);
-el.mpOverlay.addEventListener('click', (e) => { if (e.target === el.mpOverlay) closeMpPanel(); });
-
-el.mpCreateBtn.addEventListener('click', () => {
-  createNewSession();
-  el.mpBtn.classList.add('active');
-});
-el.mpJoinBtn.addEventListener('click', () => {
-  const code = el.mpJoinInput.value.trim().toUpperCase();
-  if (!code) return;
-  joinSession(code);
-  el.mpBtn.classList.add('active');
-  el.mpJoinInput.value = '';
-});
-el.mpLeaveBtn.addEventListener('click', () => {
-  joinSession('public');
-  el.mpBtn.classList.remove('active');
-});
-el.mpCopyCodeBtn.addEventListener('click', () => {
-  navigator.clipboard?.writeText(state.mp.sessionId).catch(() => {});
-  el.mpCopyCodeBtn.textContent = 'Kopiert!';
-  setTimeout(() => { el.mpCopyCodeBtn.textContent = 'Kopieren'; }, 1500);
-});
-
 /* ---- Keyboard ---- */
 document.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape'){ closeFilterPanel(); closeTopicsPanel(); closeMpPanel(); return; }
-  if (el.filterOverlay.classList.contains('open') || el.topicsOverlay.classList.contains('open') || el.mpOverlay.classList.contains('open')) return;
+  if (e.code === 'Escape'){ closeFilterPanel(); closeTopicsPanel(); return; }
+  if (el.filterOverlay.classList.contains('open') || el.topicsOverlay.classList.contains('open')) return;
   if (e.code === 'Space'){ e.preventDefault(); setPlaying(!state.playing); }
   if (e.code === 'KeyN'){ el.nextBtn.click(); }
   if (e.code === 'KeyF'){ toggleFullscreen(); }
@@ -1706,7 +1331,6 @@ updateIntervalState();
 fitWord();
 el.secPerBeatSlider.value = secPerWordChange(state.bpm).toFixed(1);
 el.secPerBeatVal.textContent = secPerWordChange(state.bpm).toFixed(1);
-initMultiplayer();
 </script>
 </body>
 </html>
