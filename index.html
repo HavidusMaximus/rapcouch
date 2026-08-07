@@ -171,6 +171,13 @@
     color: var(--accent);
     text-shadow: 0 0 40px rgba(255,77,28,0.35);
   }
+  #word.wrap{
+    white-space: normal;
+    text-transform: none;
+    line-height: 1.2;
+    letter-spacing: normal;
+    max-width: 94%;
+  }
   .wordGhost{
     font-family: 'Anton', 'Arial Black', Arial, sans-serif;
     font-weight: 900;
@@ -660,27 +667,30 @@
 <div id="topicsOverlay">
   <div id="topicsPanel">
     <div class="filterHead">
-      <span>EIGENE THEMEN</span>
+      <span>THEMA-QUELLE</span>
       <div id="topicsClose">×</div>
     </div>
 
     <div class="filterRow">
-      <div class="filterLabel"><span>NEUE THEMEN HINZUFÜGEN</span></div>
+      <div class="filterLabel"><span>WAS SOLL ERSCHEINEN?</span></div>
+      <div class="chipRow" id="themaSourceChips">
+        <div class="chip active" data-src="words">Wörter</div>
+        <div class="chip" data-src="situations">Situationen</div>
+        <div class="chip" data-src="custom">Eigene Themen</div>
+      </div>
+      <div class="hintSmall" id="themaSourceHint">Einzelne Wörter aus der vollen Liste (mit aktiven Filtern).</div>
+    </div>
+
+    <div class="filterRow">
+      <div class="filterLabel"><span>EIGENE THEMEN HINZUFÜGEN</span></div>
       <textarea id="topicsInput" placeholder="Ein Thema pro Zeile oder mit Komma getrennt..."></textarea>
       <button id="topicsAdd">Hinzufügen</button>
       <div class="hintSmall">Wird lokal in diesem Browser gespeichert.</div>
     </div>
 
     <div class="filterRow">
-      <div class="filterLabel"><span>GESAMMELTE THEMEN</span></div>
+      <div class="filterLabel"><span>GESAMMELTE EIGENE THEMEN</span></div>
       <div id="topicsList"></div>
-    </div>
-
-    <div class="filterRow">
-      <label class="toggleRow">
-        <input type="checkbox" id="useCustomTopics">
-        <span>Nur eigene Themen verwenden (statt der vollen Wortliste)</span>
-      </label>
     </div>
 
     <div id="topicsInfo">0 eigene Themen</div>
@@ -732,6 +742,7 @@
 <script src="words.js"></script>
 <script src="pos.js"></script>
 <script src="categories.js"></script>
+<script src="situations.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
 <script src="firebase-config.js"></script>
@@ -761,7 +772,7 @@ const state = {
   categoryPool: [],
   activeCategory: null,
   customTopics: [],
-  useCustomTopics: false,
+  themaSource: 'words', // 'words' | 'situations' | 'custom'
   tapTimes: [],
   turnBars: 0,       // 0 = aus; sonst 2/4/8/16
   turnEnabled: false,
@@ -837,7 +848,8 @@ const el = {
   topicsAdd: document.getElementById('topicsAdd'),
   topicsList: document.getElementById('topicsList'),
   topicsInfo: document.getElementById('topicsInfo'),
-  useCustomTopics: document.getElementById('useCustomTopics'),
+  themaSourceChips: Array.from(document.querySelectorAll('#themaSourceChips .chip')),
+  themaSourceHint: document.getElementById('themaSourceHint'),
   mpBtn: document.getElementById('mpBtn'),
   mpOverlay: document.getElementById('mpOverlay'),
   mpClose: document.getElementById('mpClose'),
@@ -961,8 +973,13 @@ function rebuildPools(){
 }
 
 function currentWordSource(){
-  if (state.mode === 'thema' && state.useCustomTopics && state.customTopics.length){
-    return state.customTopics;
+  if (state.mode === 'thema'){
+    if (state.themaSource === 'situations' && typeof SITUATIONS !== 'undefined' && SITUATIONS.length){
+      return SITUATIONS;
+    }
+    if (state.themaSource === 'custom' && state.customTopics.length){
+      return state.customTopics;
+    }
   }
   if (state.mode === 'kategorie'){
     return (state.categoryPool && state.categoryPool.length) ? state.categoryPool : state.pool;
@@ -987,6 +1004,17 @@ function pickWord(){
 /* ---------------- word display (prev / current / next) ---------------- */
 function fitWord(){
   const isFS = el.stage.classList.contains('fs');
+  const isLong = (state.currentWord || '').length > 22;
+  el.word.classList.toggle('wrap', isLong);
+
+  if (isLong){
+    const size = isFS
+      ? Math.min(window.innerWidth * 0.075, 74)
+      : Math.min(window.innerWidth * 0.068, 48);
+    el.word.style.fontSize = size + 'px';
+    return;
+  }
+
   const maxPx = isFS
     ? Math.min(window.innerWidth * 0.15, 200)
     : Math.min(window.innerWidth * 0.12, 118);
@@ -1419,14 +1447,16 @@ function loadCustomTopics(){
   try {
     const raw = localStorage.getItem('rapcouch_topics');
     if (raw) state.customTopics = JSON.parse(raw);
-    const useRaw = localStorage.getItem('rapcouch_use_custom');
-    if (useRaw !== null) state.useCustomTopics = useRaw === '1';
+    const srcRaw = localStorage.getItem('rapcouch_thema_source');
+    if (srcRaw === 'words' || srcRaw === 'situations' || srcRaw === 'custom'){
+      state.themaSource = srcRaw;
+    }
   } catch (e){ /* localStorage evtl. nicht verfügbar (z.B. privater Modus) */ }
 }
 function saveCustomTopics(){
   try {
     localStorage.setItem('rapcouch_topics', JSON.stringify(state.customTopics));
-    localStorage.setItem('rapcouch_use_custom', state.useCustomTopics ? '1' : '0');
+    localStorage.setItem('rapcouch_thema_source', state.themaSource);
   } catch (e){ /* ignorieren, Funktion bleibt nutzbar ohne Persistenz */ }
 }
 
@@ -1481,10 +1511,20 @@ el.topicsAdd.addEventListener('click', () => {
   saveCustomTopics();
 });
 
-el.useCustomTopics.addEventListener('change', (e) => {
-  state.useCustomTopics = e.target.checked;
-  saveCustomTopics();
-  refreshNextWord();
+const THEMA_SOURCE_HINTS = {
+  words: 'Einzelne Wörter aus der vollen Liste (mit aktiven Filtern).',
+  situations: `${typeof SITUATIONS !== 'undefined' ? SITUATIONS.length : 0} kurze Situationsprompts zum Freestylen, z.B. "Ich hab meinen Schlüssel vergessen".`,
+  custom: 'Nur die unten selbst gesammelten Themen.',
+};
+el.themaSourceChips.forEach(chip => {
+  chip.addEventListener('click', () => {
+    el.themaSourceChips.forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.themaSource = chip.dataset.src;
+    el.themaSourceHint.textContent = THEMA_SOURCE_HINTS[state.themaSource] || '';
+    saveCustomTopics();
+    refreshNextWord();
+  });
 });
 
 /* ---- Multiplayer (Firebase Realtime Database) ---- */
@@ -1731,7 +1771,8 @@ document.addEventListener('keydown', (e) => {
 buildCategoryChips();
 loadCustomTopics();
 renderTopicsList();
-el.useCustomTopics.checked = state.useCustomTopics;
+el.themaSourceChips.forEach(c => c.classList.toggle('active', c.dataset.src === state.themaSource));
+el.themaSourceHint.textContent = THEMA_SOURCE_HINTS[state.themaSource] || '';
 rebuildPools();
 el.category.textContent = `${WORDS.length.toLocaleString('de-DE')} WÖRTER GELADEN`;
 updateIntervalState();
