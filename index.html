@@ -1135,7 +1135,7 @@ function updateTurnDisplay(){
   const posInTurn = state.beatCount % turnBeats;
   const currentBar = Math.floor(posInTurn / 4) + 1;
   el.turnBarLabel.textContent = `BAR ${currentBar}/${state.turnBars}`;
-  el.turnFill.style.width = ((posInTurn / turnBeats) * 100) + '%';
+  el.turnFill.style.width = (((posInTurn + 1) / turnBeats) * 100) + '%';
   el.turnProgress.classList.toggle('lastBar', currentBar === state.turnBars);
   const beatsRemaining = turnBeats - posInTurn;
   const secRemaining = beatsRemaining * (60 / state.bpm);
