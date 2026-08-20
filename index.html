@@ -1392,9 +1392,9 @@ el.fsBtn.addEventListener('click', toggleFullscreen);
 el.stage.addEventListener('dblclick', toggleFullscreen);
 function toggleFullscreen(){
   if (!document.fullscreenElement){
-    document.documentElement.requestFullscreen().catch(()=>{});
+    document.documentElement.requestFullscreen?.().catch(()=>{});
   } else {
-    document.exitFullscreen().catch(()=>{});
+    document.exitFullscreen?.().catch(()=>{});
   }
 }
 document.addEventListener('fullscreenchange', () => {
