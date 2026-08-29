@@ -249,25 +249,48 @@
   #bagControls{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; }
   #bagControls.hidden{ display:none; }
 
-  /* ---------- bag progress (zeitbasiert, analog #themaProgress) ---------- */
+  /* ---------- bag progress (zeitbasiert, prominent wie #turnProgress) ---------- */
   #bagProgress{
     display:none;
-    flex-direction:column; align-items:center; gap:6px;
+    flex-direction:column; align-items:center; gap:8px;
+    width:100%;
   }
   #bagProgress.show{ display:flex; }
+  #bagLabel{
+    font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:0.12em;
+    color: var(--fg-dim); font-weight:700;
+  }
   #bagTrack{
-    width: 200px; max-width: 60vw; height:4px;
-    background: var(--line); border-radius:2px; overflow:hidden;
+    width: 280px; max-width: 70vw; height:12px;
+    background: var(--line); border-radius:6px; overflow:hidden;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.4);
   }
   #bagFill{
-    height:100%; width:0%; background: var(--accent);
+    height:100%; width:0%;
+    background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+    border-radius:6px;
     transition: width 0.9s linear;
   }
-  #bagFill.lastSec{ background:#ff8a1c; }
   #bagCountdown{
-    font-family:'JetBrains Mono',monospace; font-size:12px;
-    letter-spacing:0.08em; color: var(--fg-dim);
+    font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:700;
+    letter-spacing:0.04em; color: var(--fg);
     font-variant-numeric: tabular-nums;
+  }
+  /* Vorwarnung in den letzten 5 Sekunden vor dem Wechsel */
+  #bagProgress.lastSec #bagLabel{
+    color: var(--accent);
+    animation: lastBarPulse 0.5s ease-in-out infinite;
+  }
+  #bagProgress.lastSec #bagCountdown{
+    color: var(--accent);
+    animation: lastBarPulse 0.5s ease-in-out infinite;
+  }
+  #bagProgress.lastSec #bagFill{
+    background: var(--accent);
+    box-shadow: 0 0 16px 2px rgba(255,77,28,0.7);
+  }
+  #bagProgress.lastSec #bagTrack{
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.4), 0 0 20px rgba(255,77,28,0.35);
   }
 
   #statusrow{
@@ -606,6 +629,11 @@
     #turnTrack{ width: 420px; height:16px; border-radius:8px; }
     #turnFill{ border-radius:8px; }
     #turnBarLabel, #turnCountdown{ font-size:16px; }
+
+    #bagTrack{ width: 420px; height:16px; border-radius:8px; }
+    #bagFill{ border-radius:8px; }
+    #bagLabel{ font-size:16px; }
+    #bagCountdown{ font-size:28px; }
   }
 </style>
 </head>
@@ -723,6 +751,7 @@
   </div>
 
   <div id="bagProgress">
+    <div id="bagLabel">ZEIT FÜR DIESEN GEGENSTAND</div>
     <div id="bagTrack"><div id="bagFill"></div></div>
     <div id="bagCountdown">0:30</div>
   </div>
@@ -964,6 +993,7 @@ const el = {
   bagCredit: document.getElementById('bagCredit'),
   bagUsedInfo: document.getElementById('bagUsedInfo'),
   bagProgress: document.getElementById('bagProgress'),
+  bagLabel: document.getElementById('bagLabel'),
   bagTrack: document.getElementById('bagTrack'),
   bagFill: document.getElementById('bagFill'),
   bagCountdown: document.getElementById('bagCountdown'),
@@ -1267,7 +1297,8 @@ function updateTurnDisplay(){
   el.turnCountdown.textContent = `${mm}:${ss}`;
 }
 
-function triggerTurnFlash(){
+function triggerTurnFlash(text){
+  el.turnFlashText.textContent = text || 'WECHSEL!';
   el.turnFlashText.classList.remove('flash');
   void el.turnFlashText.offsetWidth; // Reflow erzwingen, damit die Animation neu startet
   el.turnFlashText.classList.add('flash');
@@ -1453,13 +1484,16 @@ function updateBagDisplay(){
   el.bagCountdown.textContent = `${mm}:${ss}`;
   const pct = state.bag.seconds > 0 ? 100 - (remain / state.bag.seconds * 100) : 0;
   el.bagFill.style.width = pct + '%';
-  el.bagFill.classList.toggle('lastSec', remain <= 5);
+  // Vorwarnung in den letzten 5 Sekunden, gut sichtbar wie die "letzter Bar"-
+  // Pulsanzeige im TAKT-Modus.
+  el.bagProgress.classList.toggle('lastSec', remain > 0 && remain <= 5);
 }
 
 function bagTick(){
   state.bag.remaining--;
   if (state.bag.remaining <= 0){
     state.bag.remaining = state.bag.seconds;
+    triggerTurnFlash('NÄCHSTER GEGENSTAND!');
     loadNextBagItem();
   }
   updateBagDisplay();
@@ -1467,6 +1501,7 @@ function bagTick(){
 
 function startBagClock(){
   stopClock();
+  el.bagProgress.classList.remove('lastSec');
   if (!state.bag.current && !state.bag.loading){
     state.bag.remaining = state.bag.seconds;
     loadNextBagItem();
@@ -1478,6 +1513,7 @@ function startBagClock(){
 // Manuelles Ziehen eines neuen Gegenstands (Skip-Button / Taste N),
 // analog zum "nächstes Wort" in den anderen Modi.
 async function skipBagItem(){
+  el.bagProgress.classList.remove('lastSec');
   state.bag.remaining = state.bag.seconds;
   updateBagDisplay();
   await loadNextBagItem();
@@ -1531,12 +1567,14 @@ function setMode(mode){
   el.beatrow.classList.toggle('hidden', mode === 'thema' || mode === 'bag');
   el.turnRow.classList.toggle('hidden', mode === 'thema' || mode === 'bag');
   el.themaProgress.classList.toggle('show', mode === 'thema');
+  el.bagProgress.classList.toggle('show', mode === 'bag');
   el.stage.classList.toggle('hidden', mode === 'bag');
   el.bagStage.classList.toggle('show', mode === 'bag');
   el.nextBtn.title = mode === 'bag' ? 'Nächster Gegenstand (überspringen)' : 'Nächstes Wort';
   if (mode === 'thema') updateThemaDisplay();
   if (mode === 'kategorie') rebuildPools();
   if (mode === 'bag'){ renderBagImage(); updateBagDisplay(); updateBagUsedInfo(); }
+  else { el.bagProgress.classList.remove('lastSec'); }
   pushMpState();
 }
 el.modeBtns.forEach(btn => btn.addEventListener('click', () => {
