@@ -154,6 +154,7 @@
     min-height:0;
     width:100%;
   }
+  #stage.hidden{ display:none; }
   #word{
     font-family: 'Anton', 'Arial Black', Arial, sans-serif;
     font-weight: 900;
@@ -195,6 +196,79 @@
   #wordPrev{ opacity:0.62; }
   #wordNext{ opacity:0.42; }
   #stage.fs .wordGhost{ font-size: clamp(18px, 4.6vw, 42px); }
+
+  /* ---------- bag stage (Grab the Bag: Bilder statt Wörter) ---------- */
+  #bagStage{
+    display:none;
+    flex:1;
+    flex-direction:column;
+    align-items:center; justify-content:center;
+    gap: 10px;
+    position:relative;
+    min-height:0;
+    width:100%;
+  }
+  #bagStage.show{ display:flex; }
+  #bagImgWrap{
+    position:relative;
+    width:100%; max-width: 520px;
+    flex:1; min-height:0;
+    display:flex; align-items:center; justify-content:center;
+    border-radius: 14px;
+    overflow:hidden;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+  }
+  #bagImg{
+    max-width:100%; max-height:100%;
+    width:auto; height:auto;
+    object-fit: contain;
+    display:none;
+  }
+  #bagImg.show{ display:block; }
+  #bagPlaceholder{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px; letter-spacing:0.14em; color:var(--fg-dim);
+    text-align:center; padding: 0 20px;
+  }
+  #bagImgWrap.loading #bagPlaceholder{ animation: bagPulse 1s ease-in-out infinite; }
+  @keyframes bagPulse{ 0%,100%{ opacity:0.4; } 50%{ opacity:1; } }
+  #bagCredit{
+    font-family:'JetBrains Mono',monospace;
+    font-size:9px; letter-spacing:0.06em; color: var(--fg-dim);
+    text-align:center; opacity:0.7;
+  }
+  #bagCredit a{ color: var(--fg-dim); }
+  #bagUsedInfo{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px; letter-spacing:0.1em; color: var(--fg-dim);
+    text-align:center;
+  }
+  #stage.fs ~ #bagStage #bagImgWrap, #app.fs #bagImgWrap{ max-width: 640px; }
+
+  #bagControls{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; }
+  #bagControls.hidden{ display:none; }
+
+  /* ---------- bag progress (zeitbasiert, analog #themaProgress) ---------- */
+  #bagProgress{
+    display:none;
+    flex-direction:column; align-items:center; gap:6px;
+  }
+  #bagProgress.show{ display:flex; }
+  #bagTrack{
+    width: 200px; max-width: 60vw; height:4px;
+    background: var(--line); border-radius:2px; overflow:hidden;
+  }
+  #bagFill{
+    height:100%; width:0%; background: var(--accent);
+    transition: width 0.9s linear;
+  }
+  #bagFill.lastSec{ background:#ff8a1c; }
+  #bagCountdown{
+    font-family:'JetBrains Mono',monospace; font-size:12px;
+    letter-spacing:0.08em; color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+  }
 
   #statusrow{
     text-align:center;
@@ -555,6 +629,7 @@
       <div class="modeBtn active" data-mode="takt">TAKT</div>
       <div class="modeBtn" data-mode="thema">THEMA</div>
       <div class="modeBtn" data-mode="kategorie">KATEGORIE</div>
+      <div class="modeBtn" data-mode="bag" title="Grab the Bag">SACK</div>
     </div>
 
     <div id="taktControls" class="modeControls">
@@ -583,6 +658,15 @@
       <input type="range" id="secSlider" min="0" max="59" value="0" step="1">
       <div class="pillBtn" id="topicsBtn" title="Eigene Themen">THEMEN</div>
     </div>
+
+    <div id="bagControls" class="modeControls hidden">
+      <div class="step" id="bagSecMinus" title="Kürzer">−</div>
+      <span class="ctrlVal" id="bagSecVal">30</span>
+      <span class="ctrlUnit">SEK / GEGENSTAND</span>
+      <div class="step" id="bagSecPlus" title="Länger">+</div>
+      <input type="range" id="bagSecSlider" min="10" max="120" value="30" step="5">
+      <div class="pillBtn" id="bagResetBtn" title="Sack neu befüllen (gezogene Bilder wieder freigeben)">SACK LEEREN</div>
+    </div>
   </div>
 
   <div id="categoryRow" class="hidden">
@@ -598,6 +682,15 @@
     <div id="wordPrev" class="wordGhost"></div>
     <div id="word">DRÜCK&nbsp;PLAY</div>
     <div id="wordNext" class="wordGhost"></div>
+  </div>
+
+  <div id="bagStage">
+    <div id="bagImgWrap">
+      <img id="bagImg" alt="">
+      <div id="bagPlaceholder">DRÜCK PLAY UND GREIF IN DEN SACK</div>
+    </div>
+    <div id="bagCredit"></div>
+    <div id="bagUsedInfo">0 GEGENSTÄNDE GEZOGEN</div>
   </div>
 
   <div id="beatrow">
@@ -627,6 +720,11 @@
   <div id="themaProgress">
     <div id="themaTrack"><div id="themaFill"></div></div>
     <div id="themaCountdown">02:00</div>
+  </div>
+
+  <div id="bagProgress">
+    <div id="bagTrack"><div id="bagFill"></div></div>
+    <div id="bagCountdown">0:30</div>
   </div>
 
   <div id="controls">
@@ -773,11 +871,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
 <script src="firebase-config.js"></script>
+<script src="unsplash-config.js"></script>
 <script>
 
 /* ---------------- state ---------------- */
 const state = {
-  mode: 'takt',          // 'takt' | 'thema' | 'kategorie'
+  mode: 'takt',          // 'takt' | 'thema' | 'kategorie' | 'bag'
   bpm: 90,
   intervalMin: 2,
   intervalSecPart: 0,
@@ -803,6 +902,14 @@ const state = {
   tapTimes: [],
   turnBars: 0,       // 0 = aus; sonst 2/4/8/16
   turnEnabled: false,
+  bag: {
+    seconds: 30,          // konfigurierbar über bagControls (10–120s)
+    remaining: 30,
+    timer: null,
+    current: null,        // { url, credit, creditUrl, source, key }
+    loading: false,
+    usedKeys: new Set(),  // "bereits gezogene" Bilder dieser Runde (nicht wiederholen)
+  },
   mp: {
     available: false,   // Firebase konfiguriert & erreichbar
     sessionId: 'public',
@@ -844,6 +951,22 @@ const el = {
   turnFlashText: document.getElementById('turnFlashText'),
   taktControls: document.getElementById('taktControls'),
   themaControls: document.getElementById('themaControls'),
+  bagControls: document.getElementById('bagControls'),
+  bagSecVal: document.getElementById('bagSecVal'),
+  bagSecSlider: document.getElementById('bagSecSlider'),
+  bagSecMinus: document.getElementById('bagSecMinus'),
+  bagSecPlus: document.getElementById('bagSecPlus'),
+  bagResetBtn: document.getElementById('bagResetBtn'),
+  bagStage: document.getElementById('bagStage'),
+  bagImgWrap: document.getElementById('bagImgWrap'),
+  bagImg: document.getElementById('bagImg'),
+  bagPlaceholder: document.getElementById('bagPlaceholder'),
+  bagCredit: document.getElementById('bagCredit'),
+  bagUsedInfo: document.getElementById('bagUsedInfo'),
+  bagProgress: document.getElementById('bagProgress'),
+  bagTrack: document.getElementById('bagTrack'),
+  bagFill: document.getElementById('bagFill'),
+  bagCountdown: document.getElementById('bagCountdown'),
   categoryRow: document.getElementById('categoryRow'),
   categoryChips: document.getElementById('categoryChips'),
   categoryPoolInfo: document.getElementById('categoryPoolInfo'),
@@ -1211,17 +1334,175 @@ function stopClock(){
   state.timer = null;
 }
 
+/* ---------------- GRAB THE BAG (Bilder statt Wörter) ----------------
+   Prinzip: Statt echter Gegenstände in einem Sack liefert eine Bild-API
+   ein zufälliges Foto, über das 30 Sek. (konfigurierbar) gefreestylt wird.
+   "Aus dem Sack ziehen" = neues zufälliges Bild anfordern; bereits
+   gezogene Bilder werden für die laufende Session nicht wiederholt.
+
+   Primäre Quelle: Unsplash API (echte, kuratierte Fotos von Gegenständen/
+   Alltagsobjekten, mit content_filter=high gegen NSFW/unpassende Inhalte).
+   Braucht einen kostenlosen Access Key, siehe unsplash-config.js.
+   Ohne Key (oder bei Fehlern/Rate-Limit) fällt die App automatisch auf
+   Picsum Photos zurück (kein Key nötig, funktioniert sofort, aber ohne
+   gezielten Content-Filter). Kein Filter kann NSFW-Inhalte zu 100%
+   garantieren – bei Live-Auftritten vorher kurz gegentesten. */
+
+// Suchbegriffe, die die Zufallsauswahl auf "greifbare Gegenstände" statt
+// abstrakte Landschaftsfotos lenken. Unsplash-Suche funktioniert am
+// zuverlässigsten mit englischen Begriffen, angezeigt wird nur das Bild.
+const BAG_QUERIES = [
+  'random object', 'toy', 'kitchen gadget', 'tool', 'musical instrument',
+  'sports equipment', 'shoe', 'hat', 'houseplant', 'book', 'gadget',
+  'vehicle', 'street food', 'furniture', 'stationery', 'board game',
+  'handbag', 'jewelry', 'electronics', 'vintage object',
+];
+
+function bagKeyConfigured(){
+  const key = typeof UNSPLASH_CONFIG !== 'undefined' ? UNSPLASH_CONFIG.accessKey : null;
+  return key && !key.includes('DEIN_') ? key : null;
+}
+
+async function fetchFromUnsplash(accessKey){
+  const query = BAG_QUERIES[Math.floor(Math.random() * BAG_QUERIES.length)];
+  const url = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(query)}&content_filter=high&orientation=squarish`;
+  const res = await fetch(url, { headers: { Authorization: `Client-ID ${accessKey}` } });
+  if (!res.ok) throw new Error('Unsplash-Anfrage fehlgeschlagen (' + res.status + ')');
+  const data = await res.json();
+  return {
+    url: data.urls?.regular || data.urls?.small,
+    key: 'unsplash:' + data.id,
+    credit: data.user?.name ? `Foto: ${data.user.name} / Unsplash` : 'Foto von Unsplash',
+    creditUrl: data.links?.html || 'https://unsplash.com',
+    source: 'unsplash',
+  };
+}
+
+async function fetchFromPicsum(){
+  // Picsum braucht keinen Key, liefert aber "irgendein" Foto ohne
+  // gezielte Objekt-Suche und ohne dediziertes Content-Filtering.
+  const seed = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  return {
+    url: `https://picsum.photos/seed/${seed}/900/900`,
+    key: 'picsum:' + seed,
+    credit: 'Foto: picsum.photos',
+    creditUrl: 'https://picsum.photos',
+    source: 'picsum',
+  };
+}
+
+async function drawBagItem(){
+  const accessKey = bagKeyConfigured();
+  let tries = 0;
+  let item = null;
+  while (tries < 6){
+    tries++;
+    try {
+      item = accessKey ? await fetchFromUnsplash(accessKey) : await fetchFromPicsum();
+    } catch (e){
+      // Fällt bei Fehlern (z.B. Rate-Limit) auf Picsum zurück, damit die
+      // Show weiterlaufen kann.
+      try { item = await fetchFromPicsum(); } catch (e2){ item = null; }
+    }
+    if (item && !state.bag.usedKeys.has(item.key)) break;
+    item = null;
+  }
+  return item;
+}
+
+function renderBagImage(){
+  const item = state.bag.current;
+  if (!item){
+    el.bagImg.classList.remove('show');
+    el.bagPlaceholder.style.display = '';
+    el.bagPlaceholder.textContent = state.bag.loading ? 'ZIEHE GEGENSTAND …' : 'DRÜCK PLAY UND GREIF IN DEN SACK';
+    el.bagCredit.innerHTML = '';
+    return;
+  }
+  el.bagImg.src = item.url;
+  el.bagImg.alt = 'Zufälliger Gegenstand aus dem Sack';
+  el.bagImg.classList.add('show');
+  el.bagPlaceholder.style.display = 'none';
+  el.bagCredit.innerHTML = `<a href="${item.creditUrl}" target="_blank" rel="noopener">${item.credit}</a>`;
+}
+
+function updateBagUsedInfo(){
+  const n = state.bag.usedKeys.size;
+  el.bagUsedInfo.textContent = `${n} GEGENSTAND${n === 1 ? '' : 'E'} GEZOGEN`;
+}
+
+async function loadNextBagItem(){
+  state.bag.loading = true;
+  el.bagImgWrap.classList.add('loading');
+  renderBagImage();
+  const item = await drawBagItem();
+  state.bag.loading = false;
+  el.bagImgWrap.classList.remove('loading');
+  if (item){
+    state.bag.current = item;
+    state.bag.usedKeys.add(item.key);
+    updateBagUsedInfo();
+  }
+  renderBagImage();
+}
+
+function updateBagDisplay(){
+  const remain = Math.max(0, state.bag.remaining);
+  const mm = Math.floor(remain / 60);
+  const ss = String(remain % 60).padStart(2, '0');
+  el.bagCountdown.textContent = `${mm}:${ss}`;
+  const pct = state.bag.seconds > 0 ? 100 - (remain / state.bag.seconds * 100) : 0;
+  el.bagFill.style.width = pct + '%';
+  el.bagFill.classList.toggle('lastSec', remain <= 5);
+}
+
+function bagTick(){
+  state.bag.remaining--;
+  if (state.bag.remaining <= 0){
+    state.bag.remaining = state.bag.seconds;
+    loadNextBagItem();
+  }
+  updateBagDisplay();
+}
+
+function startBagClock(){
+  stopClock();
+  if (!state.bag.current && !state.bag.loading){
+    state.bag.remaining = state.bag.seconds;
+    loadNextBagItem();
+  }
+  updateBagDisplay();
+  state.timer = setInterval(bagTick, 1000);
+}
+
+// Manuelles Ziehen eines neuen Gegenstands (Skip-Button / Taste N),
+// analog zum "nächstes Wort" in den anderen Modi.
+async function skipBagItem(){
+  state.bag.remaining = state.bag.seconds;
+  updateBagDisplay();
+  await loadNextBagItem();
+}
+
+function resetBagPool(){
+  state.bag.usedKeys.clear();
+  updateBagUsedInfo();
+}
+
 /* ---------------- play / pause ---------------- */
 function setPlaying(p){
   if (isMpLocked()) return; // gesperrt, immer an
   state.playing = p;
   if (p){
     if (state.mp.active) state.mp.startedAt = Date.now();
-    ensureStarted();
     el.playBtn.classList.add('playing');
     el.playIcon.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
     el.category.textContent = 'LIVE';
-    if (state.mode === 'thema') startThemaClock(); else startBeatClock();
+    if (state.mode === 'bag'){
+      startBagClock();
+    } else {
+      ensureStarted();
+      if (state.mode === 'thema') startThemaClock(); else startBeatClock();
+    }
   } else {
     el.playBtn.classList.remove('playing');
     el.playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
@@ -1243,14 +1524,19 @@ function setMode(mode){
   state.nextWord = '';
   renderWords();
   el.modeBtns.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-  el.taktControls.classList.toggle('hidden', mode === 'thema');
+  el.taktControls.classList.toggle('hidden', mode === 'thema' || mode === 'bag');
   el.themaControls.classList.toggle('hidden', mode !== 'thema');
+  el.bagControls.classList.toggle('hidden', mode !== 'bag');
   el.categoryRow.classList.toggle('hidden', mode !== 'kategorie');
-  el.beatrow.classList.toggle('hidden', mode === 'thema');
-  el.turnRow.classList.toggle('hidden', mode === 'thema');
+  el.beatrow.classList.toggle('hidden', mode === 'thema' || mode === 'bag');
+  el.turnRow.classList.toggle('hidden', mode === 'thema' || mode === 'bag');
   el.themaProgress.classList.toggle('show', mode === 'thema');
+  el.stage.classList.toggle('hidden', mode === 'bag');
+  el.bagStage.classList.toggle('show', mode === 'bag');
+  el.nextBtn.title = mode === 'bag' ? 'Nächster Gegenstand (überspringen)' : 'Nächstes Wort';
   if (mode === 'thema') updateThemaDisplay();
   if (mode === 'kategorie') rebuildPools();
+  if (mode === 'bag'){ renderBagImage(); updateBagDisplay(); updateBagUsedInfo(); }
   pushMpState();
 }
 el.modeBtns.forEach(btn => btn.addEventListener('click', () => {
@@ -1279,6 +1565,10 @@ function resyncClock(){
 
 el.nextBtn.addEventListener('click', () => {
   if (isMpLocked()) return; // gesperrt
+  if (state.mode === 'bag'){
+    if (!state.playing) setPlaying(true); else skipBagItem();
+    return;
+  }
   if (state.mp.active && state.mp.startedAt){
     const wordIntervalMs = state.mode === 'thema' ? state.intervalSec * 1000 : 8 * intervalMs();
     state.mp.startedAt -= wordIntervalMs;
@@ -1386,6 +1676,23 @@ el.minPlus.addEventListener('click', () => { state.intervalMin = Math.min(30, st
 el.secMinus.addEventListener('click', () => { state.intervalSecPart = Math.max(0, state.intervalSecPart - 1); updateIntervalState(); });
 el.secPlus.addEventListener('click', () => { state.intervalSecPart = Math.min(59, state.intervalSecPart + 1); updateIntervalState(); });
 el.secSlider.addEventListener('input', (e) => { state.intervalSecPart = parseInt(e.target.value, 10); updateIntervalState(); });
+
+/* ---- Grab the Bag: Sekunden pro Gegenstand ---- */
+function setBagSeconds(v){
+  const min = parseInt(el.bagSecSlider.min, 10);
+  const max = parseInt(el.bagSecSlider.max, 10);
+  state.bag.seconds = Math.max(min, Math.min(max, v));
+  el.bagSecVal.textContent = state.bag.seconds;
+  el.bagSecSlider.value = state.bag.seconds;
+  if (!state.playing || state.mode !== 'bag'){
+    state.bag.remaining = state.bag.seconds;
+    updateBagDisplay();
+  }
+}
+el.bagSecSlider.addEventListener('input', (e) => setBagSeconds(parseInt(e.target.value, 10)));
+el.bagSecMinus.addEventListener('click', () => setBagSeconds(state.bag.seconds - 5));
+el.bagSecPlus.addEventListener('click', () => setBagSeconds(state.bag.seconds + 5));
+el.bagResetBtn.addEventListener('click', () => resetBagPool());
 
 /* ---- Fullscreen ---- */
 el.fsBtn.addEventListener('click', toggleFullscreen);
