@@ -601,9 +601,22 @@
     padding: 0 4px;
   }
 
-  #app.fs #topbar, #app.fs #hint, #app.fs #modeRow, #app.fs #categoryRow{ opacity:0.15; transition: opacity 0.3s; }
-  #app.fs:hover #topbar, #app.fs:hover #hint, #app.fs:hover #modeRow, #app.fs:hover #categoryRow{ opacity:1; }
-  #app.fs #beatrow, #app.fs #themaProgress, #app.fs #turnRow{ opacity:0.4; }
+  /* ---------- Beamer-/Präsentationsmodus ----------
+     Aktiv nur im echten Vollbild (#app.fs). Nach kurzer Mausinaktivität
+     bekommt #app zusätzlich die Klasse .fs-idle: dann verschwindet alles
+     außer Logo, Wort/Bild-Bühne und der Takt-/Wechsel-Anzeige. Jede
+     Mausbewegung/Taste holt die Bedienelemente sofort zurück. */
+  #app.fs #topbarRight, #app.fs #modeRow, #app.fs #categoryRow,
+  #app.fs #statusrow, #app.fs #controls, #app.fs #hint, #app.fs #turnChips{
+    transition: opacity 0.35s ease;
+  }
+  #app.fs.fs-idle #topbarRight, #app.fs.fs-idle #modeRow, #app.fs.fs-idle #categoryRow,
+  #app.fs.fs-idle #statusrow, #app.fs.fs-idle #controls, #app.fs.fs-idle #hint, #app.fs.fs-idle #turnChips{
+    opacity:0; pointer-events:none;
+  }
+  #app.fs.fs-idle{ cursor:none; }
+  #app.fs.fs-idle #bagImgWrap{ max-width: 900px; }
+  #app.fs.fs-idle .brand{ opacity:1; }
 
   @media (max-width: 480px){
     input[type=range]{ width: 64px; }
@@ -646,7 +659,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.6"/><path d="M2.5 20c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6"/><path d="M14.5 14.3c2.4.3 4 2.4 4 5.7"/></svg>
         <div class="dot-badge"></div>
       </div>
-      <div class="iconbtn" id="fsBtn" title="Vollbild">
+      <div class="iconbtn" id="fsBtn" title="Vollbild (Beamer-Modus – Bedienelemente blenden sich bei Mausstillstand aus)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
       </div>
     </div>
@@ -1184,19 +1197,20 @@ function pickWord(){
 /* ---------------- word display (prev / current / next) ---------------- */
 function fitWord(){
   const isFS = el.stage.classList.contains('fs');
+  const isIdle = el.app.classList.contains('fs-idle');
   const isLong = (state.currentWord || '').length > 22;
   el.word.classList.toggle('wrap', isLong);
 
   if (isLong){
     const size = isFS
-      ? Math.min(window.innerWidth * 0.075, 74)
+      ? Math.min(window.innerWidth * (isIdle ? 0.09 : 0.075), isIdle ? 100 : 74)
       : Math.min(window.innerWidth * 0.068, 48);
     el.word.style.fontSize = size + 'px';
     return;
   }
 
   const maxPx = isFS
-    ? Math.min(window.innerWidth * 0.15, 200)
+    ? Math.min(window.innerWidth * (isIdle ? 0.19 : 0.15), isIdle ? 280 : 200)
     : Math.min(window.innerWidth * 0.12, 118);
   const minPx = 18;
   const maxWidth = el.stage.clientWidth * 0.92;
@@ -1746,7 +1760,35 @@ document.addEventListener('fullscreenchange', () => {
   el.app.classList.toggle('fs', !!document.fullscreenElement);
   el.stage.classList.toggle('fs', !!document.fullscreenElement);
   fitWord();
+  if (document.fullscreenElement){
+    resetIdleTimer();
+  } else {
+    clearTimeout(idleTimer);
+    el.app.classList.remove('fs-idle');
+    fitWord();
+  }
 });
+
+/* ---- Beamer-/Präsentationsmodus: Bedienelemente bei Mausstillstand
+   ausblenden, nur Logo + Wort/Bild + Takt-/Wechsel-Anzeige bleiben. ---- */
+const IDLE_MS = 2500;
+let idleTimer = null;
+function resetIdleTimer(){
+  if (el.app.classList.contains('fs-idle')){
+    el.app.classList.remove('fs-idle');
+    fitWord();
+  }
+  clearTimeout(idleTimer);
+  if (document.fullscreenElement){
+    idleTimer = setTimeout(() => {
+      el.app.classList.add('fs-idle');
+      fitWord();
+    }, IDLE_MS);
+  }
+}
+['mousemove', 'mousedown', 'touchstart', 'keydown'].forEach(evt =>
+  document.addEventListener(evt, resetIdleTimer)
+);
 
 /* ---- Filter panel ---- */
 function openFilterPanel(){ el.filterOverlay.classList.add('open'); }
