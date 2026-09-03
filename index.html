@@ -47,17 +47,24 @@
     font-family: Arial Black, Arial, sans-serif;
     font-weight:900;
     letter-spacing: 0.14em;
-    font-size: 13px;
+    font-size: 20px;
     color: var(--fg-dim);
+    transition: font-size 0.3s ease;
   }
   .brand b{ color: var(--fg); }
   #igHandle{
     font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
-    font-size: 10px; letter-spacing:0.08em;
+    font-size: 13px; letter-spacing:0.08em;
     color: var(--fg-dim);
     margin-top: 2px;
+    display:block;
+    transition: font-size 0.3s ease, color 0.3s ease;
   }
-  #app.fs #igHandle{ font-size: 13px; color: var(--accent); }
+  /* Im Vollbild/Beamer-Betrieb deutlich größer, analog zu Wort/Takt-Anzeige */
+  #app.fs .brand{ font-size: 32px; }
+  #app.fs #igHandle{ font-size: 20px; color: var(--accent); }
+  #app.fs.fs-idle .brand{ font-size: 42px; }
+  #app.fs.fs-idle #igHandle{ font-size: 25px; }
 
   iconbtn, .iconbtn{
     display:flex; align-items:center; justify-content:center;
