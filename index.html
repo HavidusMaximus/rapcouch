@@ -51,6 +51,13 @@
     color: var(--fg-dim);
   }
   .brand b{ color: var(--fg); }
+  #igHandle{
+    font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
+    font-size: 10px; letter-spacing:0.08em;
+    color: var(--fg-dim);
+    margin-top: 2px;
+  }
+  #app.fs #igHandle{ font-size: 13px; color: var(--accent); }
 
   iconbtn, .iconbtn{
     display:flex; align-items:center; justify-content:center;
@@ -653,7 +660,7 @@
 <body>
 <div id="app">
   <div id="topbar">
-    <div class="brand">RAP<b>COUCH</b></div>
+    <div class="brand">RAP<b>COUCH</b><br><span id="igHandle">@rap.couch</span></div>
     <div id="topbarRight">
       <div class="iconbtn" id="mpBtn" title="Multiplayer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.6"/><path d="M2.5 20c0-3.6 2.5-6 5.5-6s5.5 2.4 5.5 6"/><path d="M14.5 14.3c2.4.3 4 2.4 4 5.7"/></svg>
