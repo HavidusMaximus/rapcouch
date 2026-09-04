@@ -153,6 +153,18 @@
     min-width: 90px;
   }
   #bpmAutoStatus.locked{ color: var(--accent); font-weight:700; }
+  #bpmAutoMeter{
+    width: 60px; height:8px; border-radius:4px;
+    background: var(--line); overflow:hidden;
+    display:inline-block; vertical-align:middle; margin-right:6px;
+  }
+  #bpmAutoMeterFill{
+    height:100%; width:0%; background: var(--fg-dim);
+    transition: width 0.08s linear, background 0.08s linear;
+  }
+  #bpmAutoMeterFill.hit{ background: var(--accent); }
+  #bpmAutoControls{ display:none; align-items:center; gap:6px; }
+  #bpmAutoControls.show{ display:inline-flex; }
 
   /* ---------- category row (Kategorien-Modus) ---------- */
   #categoryRow{
@@ -706,7 +718,10 @@
       <input type="range" id="bpmSlider" min="50" max="180" value="90" step="1">
       <div class="pillBtn" id="tapBtn" title="Im Takt tippen">TAP</div>
       <div class="pillBtn" id="bpmAutoBtn" title="BPM automatisch per Mikrofon erkennen (z.B. von einem virtuellen Audiokabel, das den Beat-Player einspeist)">🎤 AUTO-BPM</div>
-      <span id="bpmAutoStatus"></span>
+      <div id="bpmAutoControls">
+        <span id="bpmAutoMeter" title="Live-Pegel des Eingangssignals – bewegt sich das nicht, kommt kein Audio an"><span id="bpmAutoMeterFill"></span></span>
+        <span id="bpmAutoStatus"></span>
+      </div>
       <div class="secPerBeatBlock" title="Wortwechsel alle X Sekunden – live zu BPM umgerechnet">
         <span class="ctrlUnit">WORT ALLE</span>
         <span class="ctrlVal" id="secPerBeatVal">5.3</span>
@@ -1002,6 +1017,8 @@ const el = {
   bpmMinus: document.getElementById('bpmMinus'),
   bpmPlus: document.getElementById('bpmPlus'),
   bpmAutoBtn: document.getElementById('bpmAutoBtn'),
+  bpmAutoControls: document.getElementById('bpmAutoControls'),
+  bpmAutoMeterFill: document.getElementById('bpmAutoMeterFill'),
   bpmAutoStatus: document.getElementById('bpmAutoStatus'),
   tapBtn: document.getElementById('tapBtn'),
   minVal: document.getElementById('minVal'),
@@ -1762,6 +1779,7 @@ const bpmAuto = {
   intervals: [],        // jüngste Zeitabstände zwischen erkannten Beats (ms)
   lastAppliedBpm: null,
   lastApplyAt: 0,
+  peakLevel: 0.02, // adaptiver, langsam abklingender Spitzenwert zur Pegel-Kalibrierung
 };
 
 function bpmAutoResetTracking(){
@@ -1769,6 +1787,7 @@ function bpmAutoResetTracking(){
   bpmAuto.intervals = [];
   bpmAuto.lastBeatAt = 0;
   bpmAuto.lastAppliedBpm = null;
+  bpmAuto.peakLevel = 0.02;
 }
 
 function bpmAutoAnalyse(analyser, data){
@@ -1781,6 +1800,12 @@ function bpmAutoAnalyse(analyser, data){
   }
   const rms = Math.sqrt(sumSquares / data.length);
 
+  // Live-Pegelanzeige: läuft IMMER mit, unabhängig davon, ob ein Beat
+  // erkannt wird – so sieht man sofort, ob überhaupt Audio ankommt.
+  bpmAuto.peakLevel = Math.max(rms, bpmAuto.peakLevel * 0.996);
+  const meterPct = Math.min(100, (rms / Math.max(bpmAuto.peakLevel, 0.015)) * 100);
+  el.bpmAutoMeterFill.style.width = meterPct + '%';
+
   const hist = bpmAuto.energyHistory;
   hist.push(rms);
   if (hist.length > 43) hist.shift(); // ca. 0.7s bei ~60fps
@@ -1789,9 +1814,16 @@ function bpmAutoAnalyse(analyser, data){
   const now = performance.now();
   const minGapMs = 250; // > 240 BPM ist praktisch nie ein echter Kick, sondern Nachschwingen
 
-  // Beat = deutlicher Ausschlag über dem gleitenden Durchschnitt, und
-  // genug Zeit seit dem letzten erkannten Beat vergangen.
-  if (rms > avg * 1.35 && rms > 0.06 && now - bpmAuto.lastBeatAt > minGapMs){
+  // Beat = deutlicher Ausschlag über dem gleitenden Durchschnitt UND über
+  // einem Anteil des zuletzt gesehenen Spitzenpegels. Passt sich damit
+  // automatisch an leise wie laute Eingangspegel an (kein fester Grenzwert
+  // mehr, der bei manchen Mikrofonen/Kabeln nie erreicht wird).
+  const isBeat = rms > avg * 1.3 && rms > bpmAuto.peakLevel * 0.32 && rms > 0.006
+    && now - bpmAuto.lastBeatAt > minGapMs;
+
+  if (isBeat){
+    el.bpmAutoMeterFill.classList.add('hit');
+    setTimeout(() => el.bpmAutoMeterFill.classList.remove('hit'), 90);
     if (bpmAuto.lastBeatAt > 0){
       const gap = now - bpmAuto.lastBeatAt;
       if (gap < 2000){ // > 2s Pause = neuer Song/Break, alte Abstände verwerfen
@@ -1857,6 +1889,7 @@ async function startBpmAuto(){
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
     });
   } catch (err){
+    el.bpmAutoControls.classList.add('show');
     el.bpmAutoStatus.textContent = 'MIKROFON VERWEIGERT';
     el.bpmAutoStatus.classList.remove('locked');
     return;
@@ -1878,6 +1911,7 @@ async function startBpmAuto(){
   bpmAutoResetTracking();
   bpmAuto.active = true;
   el.bpmAutoBtn.classList.add('listening');
+  el.bpmAutoControls.classList.add('show');
   el.bpmAutoStatus.textContent = 'HÖRE ZU …';
 
   const loop = () => {
@@ -1896,6 +1930,8 @@ function stopBpmAuto(){
   bpmAuto.audioCtx = null;
   bpmAuto.stream = null;
   el.bpmAutoBtn.classList.remove('listening');
+  el.bpmAutoControls.classList.remove('show');
+  el.bpmAutoMeterFill.style.width = '0%';
   el.bpmAutoStatus.textContent = '';
   el.bpmAutoStatus.classList.remove('locked');
 }
