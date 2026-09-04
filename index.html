@@ -141,6 +141,18 @@
     cursor:pointer;
   }
   .pillBtn.tapped{ background: var(--accent); color:#0a0a0a; border-color:var(--accent); }
+  .pillBtn.active{ background: var(--accent); color:#0a0a0a; border-color:var(--accent); }
+  .pillBtn.listening{
+    background: var(--bg-raised); border-color: var(--accent); color: var(--accent);
+    animation: bpmListenPulse 1s ease-in-out infinite;
+  }
+  @keyframes bpmListenPulse{ 0%,100%{ opacity:1; } 50%{ opacity:0.55; } }
+  #bpmAutoStatus{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px; letter-spacing:0.06em; color: var(--fg-dim);
+    min-width: 90px;
+  }
+  #bpmAutoStatus.locked{ color: var(--accent); font-weight:700; }
 
   /* ---------- category row (Kategorien-Modus) ---------- */
   #categoryRow{
@@ -693,6 +705,8 @@
       <div class="step" id="bpmPlus" title="Schneller">+</div>
       <input type="range" id="bpmSlider" min="50" max="180" value="90" step="1">
       <div class="pillBtn" id="tapBtn" title="Im Takt tippen">TAP</div>
+      <div class="pillBtn" id="bpmAutoBtn" title="BPM automatisch per Mikrofon erkennen (z.B. von einem virtuellen Audiokabel, das den Beat-Player einspeist)">🎤 AUTO-BPM</div>
+      <span id="bpmAutoStatus"></span>
       <div class="secPerBeatBlock" title="Wortwechsel alle X Sekunden – live zu BPM umgerechnet">
         <span class="ctrlUnit">WORT ALLE</span>
         <span class="ctrlVal" id="secPerBeatVal">5.3</span>
@@ -987,6 +1001,8 @@ const el = {
   bpmSlider: document.getElementById('bpmSlider'),
   bpmMinus: document.getElementById('bpmMinus'),
   bpmPlus: document.getElementById('bpmPlus'),
+  bpmAutoBtn: document.getElementById('bpmAutoBtn'),
+  bpmAutoStatus: document.getElementById('bpmAutoStatus'),
   tapBtn: document.getElementById('tapBtn'),
   minVal: document.getElementById('minVal'),
   secVal: document.getElementById('secVal'),
@@ -1603,6 +1619,7 @@ function setMode(mode){
   if (mode === 'kategorie') rebuildPools();
   if (mode === 'bag'){ renderBagImage(); updateBagDisplay(); updateBagUsedInfo(); }
   else { el.bagProgress.classList.remove('lastSec'); }
+  if ((mode === 'thema' || mode === 'bag') && bpmAuto.active) stopBpmAuto();
   pushMpState();
 }
 el.modeBtns.forEach(btn => btn.addEventListener('click', () => {
@@ -1723,6 +1740,170 @@ function handleTap(){
   setTimeout(() => el.tapBtn.classList.remove('tapped'), 120);
 }
 el.tapBtn.addEventListener('click', handleTap);
+
+/* ---- Automatische BPM-Erkennung per Mikrofon ----
+   Hört über getUserMedia mit, filtert das Signal auf Bass-/Kick-Frequenzen
+   (typische Kickdrum-Range), erkennt darin Energie-Spitzen ("Beats") und
+   berechnet daraus laufend die BPM. Funktioniert mit jedem Mikrofoneingang –
+   auch mit einem virtuellen Audiokabel (VB-CABLE/BlackHole), das den
+   Beat-Player (z.B. VLC) direkt einspeist, statt Raumgeräusche aufzunehmen.
+
+   Bewusst zurückhaltend beim tatsächlichen Anwenden: state.bpm wird erst
+   übernommen, wenn die letzten Schläge über mehrere Takte hinweg
+   gleichmäßig sind (sonst würde jede kleine Schwankung den Beat-Timer
+   ständig neu starten und den Wortwechsel sichtbar "ruckeln" lassen). */
+const bpmAuto = {
+  active: false,
+  audioCtx: null,
+  stream: null,
+  raf: null,
+  energyHistory: [],   // kurzer gleitender Energie-Schnitt zur Schwellenwert-Berechnung
+  lastBeatAt: 0,
+  intervals: [],        // jüngste Zeitabstände zwischen erkannten Beats (ms)
+  lastAppliedBpm: null,
+  lastApplyAt: 0,
+};
+
+function bpmAutoResetTracking(){
+  bpmAuto.energyHistory = [];
+  bpmAuto.intervals = [];
+  bpmAuto.lastBeatAt = 0;
+  bpmAuto.lastAppliedBpm = null;
+}
+
+function bpmAutoAnalyse(analyser, data){
+  analyser.getByteTimeDomainData(data);
+  // RMS-Energie des (bass-gefilterten) Signals dieses Frames.
+  let sumSquares = 0;
+  for (let i = 0; i < data.length; i++){
+    const v = (data[i] - 128) / 128;
+    sumSquares += v * v;
+  }
+  const rms = Math.sqrt(sumSquares / data.length);
+
+  const hist = bpmAuto.energyHistory;
+  hist.push(rms);
+  if (hist.length > 43) hist.shift(); // ca. 0.7s bei ~60fps
+
+  const avg = hist.reduce((a, b) => a + b, 0) / hist.length;
+  const now = performance.now();
+  const minGapMs = 250; // > 240 BPM ist praktisch nie ein echter Kick, sondern Nachschwingen
+
+  // Beat = deutlicher Ausschlag über dem gleitenden Durchschnitt, und
+  // genug Zeit seit dem letzten erkannten Beat vergangen.
+  if (rms > avg * 1.35 && rms > 0.06 && now - bpmAuto.lastBeatAt > minGapMs){
+    if (bpmAuto.lastBeatAt > 0){
+      const gap = now - bpmAuto.lastBeatAt;
+      if (gap < 2000){ // > 2s Pause = neuer Song/Break, alte Abstände verwerfen
+        bpmAuto.intervals.push(gap);
+        if (bpmAuto.intervals.length > 10) bpmAuto.intervals.shift();
+      } else {
+        bpmAuto.intervals = [];
+      }
+    }
+    bpmAuto.lastBeatAt = now;
+    bpmAutoEvaluate();
+  } else if (bpmAuto.lastBeatAt > 0 && now - bpmAuto.lastBeatAt > 3000){
+    // Länger keine Beats mehr -> Tracking verwerfen und neu einpendeln lassen.
+    bpmAutoResetTracking();
+    el.bpmAutoStatus.textContent = 'HÖRE ZU …';
+    el.bpmAutoStatus.classList.remove('locked');
+  }
+}
+
+function bpmAutoEvaluate(){
+  const intervals = bpmAuto.intervals;
+  if (intervals.length < 4) {
+    el.bpmAutoStatus.textContent = `HÖRE ZU … (${intervals.length}/4)`;
+    el.bpmAutoStatus.classList.remove('locked');
+    return;
+  }
+  const sorted = [...intervals].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  // Streuung prüfen: nur "locken", wenn die letzten Abstände wirklich
+  // regelmäßig sind (kein zufälliges Stimmengewirr).
+  const maxDeviation = Math.max(...intervals.map(g => Math.abs(g - median)));
+  const stable = maxDeviation / median < 0.14;
+
+  let bpm = 60000 / median;
+  // Sehr schnelle/langsame Treffer meist Halbe/Doppelte des echten Tempos –
+  // in den unterstützten Slider-Bereich (50–180) hochoktavieren/halbieren.
+  while (bpm < 50) bpm *= 2;
+  while (bpm > 180) bpm /= 2;
+  bpm = Math.round(bpm);
+
+  if (!stable){
+    el.bpmAutoStatus.textContent = `~${bpm} BPM (unstet)`;
+    el.bpmAutoStatus.classList.remove('locked');
+    return;
+  }
+
+  el.bpmAutoStatus.textContent = `${bpm} BPM erkannt`;
+  el.bpmAutoStatus.classList.add('locked');
+
+  const now = performance.now();
+  const changed = bpmAuto.lastAppliedBpm === null || Math.abs(bpm - bpmAuto.lastAppliedBpm) >= 1;
+  const cooledDown = now - bpmAuto.lastApplyAt > 1500; // Beat-Timer nicht zu oft neu starten
+  if (changed && cooledDown){
+    bpmAuto.lastAppliedBpm = bpm;
+    bpmAuto.lastApplyAt = now;
+    setBpm(bpm);
+  }
+}
+
+async function startBpmAuto(){
+  try {
+    bpmAuto.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+  } catch (err){
+    el.bpmAutoStatus.textContent = 'MIKROFON VERWEIGERT';
+    el.bpmAutoStatus.classList.remove('locked');
+    return;
+  }
+  bpmAuto.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = bpmAuto.audioCtx.createMediaStreamSource(bpmAuto.stream);
+  // Tiefpass auf Kickdrum-/Bass-Bereich: macht die Erkennung robust gegen
+  // Rap-Vocals, Publikum etc. und reagiert v.a. auf den Beat selbst.
+  const lowpass = bpmAuto.audioCtx.createBiquadFilter();
+  lowpass.type = 'lowpass';
+  lowpass.frequency.value = 150;
+  lowpass.Q.value = 1;
+  const analyser = bpmAuto.audioCtx.createAnalyser();
+  analyser.fftSize = 1024;
+  source.connect(lowpass);
+  lowpass.connect(analyser);
+  const data = new Uint8Array(analyser.fftSize);
+
+  bpmAutoResetTracking();
+  bpmAuto.active = true;
+  el.bpmAutoBtn.classList.add('listening');
+  el.bpmAutoStatus.textContent = 'HÖRE ZU …';
+
+  const loop = () => {
+    if (!bpmAuto.active) return;
+    bpmAutoAnalyse(analyser, data);
+    bpmAuto.raf = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function stopBpmAuto(){
+  bpmAuto.active = false;
+  if (bpmAuto.raf) cancelAnimationFrame(bpmAuto.raf);
+  if (bpmAuto.stream) bpmAuto.stream.getTracks().forEach(t => t.stop());
+  if (bpmAuto.audioCtx) bpmAuto.audioCtx.close();
+  bpmAuto.audioCtx = null;
+  bpmAuto.stream = null;
+  el.bpmAutoBtn.classList.remove('listening');
+  el.bpmAutoStatus.textContent = '';
+  el.bpmAutoStatus.classList.remove('locked');
+}
+
+el.bpmAutoBtn.addEventListener('click', () => {
+  if (isMpLocked()) return;
+  if (bpmAuto.active) stopBpmAuto(); else startBpmAuto();
+});
 
 /* ---- Thema interval controls ---- */
 function updateIntervalState(){
@@ -2208,6 +2389,7 @@ fitWord();
 el.secPerBeatSlider.value = secPerWordChange(state.bpm).toFixed(1);
 el.secPerBeatVal.textContent = secPerWordChange(state.bpm).toFixed(1);
 initMultiplayer();
+window.addEventListener('beforeunload', () => { if (bpmAuto.active) stopBpmAuto(); });
 </script>
 </body>
 </html>
