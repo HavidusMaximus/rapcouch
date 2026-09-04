@@ -1812,7 +1812,7 @@ function bpmAutoAnalyse(analyser, data){
 
   const avg = hist.reduce((a, b) => a + b, 0) / hist.length;
   const now = performance.now();
-  const minGapMs = 250; // > 240 BPM ist praktisch nie ein echter Kick, sondern Nachschwingen
+  const minGapMs = 300; // > 200 BPM ist praktisch nie ein echter Kick, sondern Nachschwingen/Snare
 
   // Beat = deutlicher Ausschlag über dem gleitenden Durchschnitt UND über
   // einem Anteil des zuletzt gesehenen Spitzenpegels. Passt sich damit
@@ -1850,22 +1850,27 @@ function bpmAutoEvaluate(){
     el.bpmAutoStatus.classList.remove('locked');
     return;
   }
-  const sorted = [...intervals].sort((a, b) => a - b);
+  // Jeden Abstand EINZELN in den plausiblen Tempo-Bereich falten (z.B. falls
+  // eine Snare/Hi-Hat im Bassbereich mal einen Halbe-Note-Abstand erzeugt),
+  // BEVOR verglichen wird – verhindert, dass ein einzelner Ausreißer die
+  // ganze Serie als "unstet" erscheinen lässt.
+  const bpmSamples = intervals.map(g => {
+    let bpm = 60000 / g;
+    while (bpm < 50) bpm *= 2;
+    while (bpm > 180) bpm /= 2;
+    return bpm;
+  });
+  const sorted = [...bpmSamples].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
-  // Streuung prüfen: nur "locken", wenn die letzten Abstände wirklich
-  // regelmäßig sind (kein zufälliges Stimmengewirr).
-  const maxDeviation = Math.max(...intervals.map(g => Math.abs(g - median)));
-  const stable = maxDeviation / median < 0.14;
-
-  let bpm = 60000 / median;
-  // Sehr schnelle/langsame Treffer meist Halbe/Doppelte des echten Tempos –
-  // in den unterstützten Slider-Bereich (50–180) hochoktavieren/halbieren.
-  while (bpm < 50) bpm *= 2;
-  while (bpm > 180) bpm /= 2;
-  bpm = Math.round(bpm);
+  // Toleranz statt Alles-oder-nichts: erlaubt normales menschliches
+  // Timing/Groove und einzelne Ausreißer, solange die Mehrheit passt.
+  const tolerance = Math.max(3, median * 0.09); // ±9%, mind. ±3 BPM
+  const inTolerance = bpmSamples.filter(b => Math.abs(b - median) <= tolerance).length;
+  const stable = inTolerance / bpmSamples.length >= 0.65;
+  const bpm = Math.round(median);
 
   if (!stable){
-    el.bpmAutoStatus.textContent = `~${bpm} BPM (unstet)`;
+    el.bpmAutoStatus.textContent = `~${bpm} BPM (${inTolerance}/${bpmSamples.length} stabil)`;
     el.bpmAutoStatus.classList.remove('locked');
     return;
   }
