@@ -109,6 +109,11 @@
     font-variant-numeric: tabular-nums;
     color: var(--fg);
   }
+  .ctrlVal.autoApplied{ animation: bpmFlash 0.5s ease; }
+  @keyframes bpmFlash{
+    0%{ color: var(--accent); transform: scale(1.35); }
+    100%{ color: var(--fg); transform: scale(1); }
+  }
   .ctrlUnit{ font-size:10px; color:var(--fg-dim); letter-spacing:0.08em; }
   .step{
     width:24px; height:24px; border-radius:4px;
@@ -1780,6 +1785,7 @@ const bpmAuto = {
   lastAppliedBpm: null,
   lastApplyAt: 0,
   peakLevel: 0.02, // adaptiver, langsam abklingender Spitzenwert zur Pegel-Kalibrierung
+  smoothedBpm: null, // über Zeit geglätteter Wert (EMA) - dämpft Sprünge von Fenster zu Fenster
 };
 
 function bpmAutoResetTracking(){
@@ -1788,6 +1794,7 @@ function bpmAutoResetTracking(){
   bpmAuto.lastBeatAt = 0;
   bpmAuto.lastAppliedBpm = null;
   bpmAuto.peakLevel = 0.02;
+  bpmAuto.smoothedBpm = null;
 }
 
 function bpmAutoAnalyse(analyser, data){
@@ -1875,16 +1882,40 @@ function bpmAutoEvaluate(){
     return;
   }
 
-  el.bpmAutoStatus.textContent = `${bpm} BPM erkannt`;
+  // Über Zeit glätten (EMA), statt den rohen Fenster-Wert direkt zu
+  // übernehmen – ein einzelnes Zeitfenster kann leicht mal 1-3 BPM daneben
+  // liegen, auch wenn es "stabil" genug für sich ist. Das dämpft genau das
+  // "hüpft bei ein und demselben Beat mehrfach"-Verhalten.
+  bpmAuto.smoothedBpm = bpmAuto.smoothedBpm === null
+    ? median
+    : bpmAuto.smoothedBpm * 0.82 + median * 0.18;
+  const smoothed = Math.round(bpmAuto.smoothedBpm);
+
+  el.bpmAutoStatus.textContent = `${smoothed} BPM erkannt`;
   el.bpmAutoStatus.classList.add('locked');
 
   const now = performance.now();
-  const changed = bpmAuto.lastAppliedBpm === null || Math.abs(bpm - bpmAuto.lastAppliedBpm) >= 1;
-  const cooledDown = now - bpmAuto.lastApplyAt > 1500; // Beat-Timer nicht zu oft neu starten
+  // Erst ab 2 BPM Unterschied UND min. 4s seit der letzten Übernahme wird
+  // überhaupt neu angewendet – verhindert, dass der Beat-Timer mehrfach
+  // innerhalb desselben Songs neu gestartet wird.
+  const changed = bpmAuto.lastAppliedBpm === null || Math.abs(smoothed - bpmAuto.lastAppliedBpm) >= 2;
+  const cooledDown = now - bpmAuto.lastApplyAt > 4000;
   if (changed && cooledDown){
-    bpmAuto.lastAppliedBpm = bpm;
+    bpmAuto.lastAppliedBpm = smoothed;
     bpmAuto.lastApplyAt = now;
-    setBpm(bpm);
+    try {
+      setBpm(smoothed);
+      // Deutliche Bestätigung, dass die Übernahme wirklich stattgefunden hat
+      // (nicht nur "erkannt", sondern auch tatsächlich am Regler angekommen).
+      el.bpmVal.classList.remove('autoApplied');
+      void el.bpmVal.offsetWidth;
+      el.bpmVal.classList.add('autoApplied');
+      console.debug('[rapcouch] Auto-BPM übernommen:', smoothed);
+    } catch (err){
+      console.error('[rapcouch] Fehler beim Übernehmen der Auto-BPM:', err);
+    }
+  } else {
+    console.debug('[rapcouch] Auto-BPM stabil bei', bpm, '- keine neue Übernahme (changed:', changed, 'cooledDown:', cooledDown, ')');
   }
 }
 
@@ -1921,7 +1952,11 @@ async function startBpmAuto(){
 
   const loop = () => {
     if (!bpmAuto.active) return;
-    bpmAutoAnalyse(analyser, data);
+    try {
+      bpmAutoAnalyse(analyser, data);
+    } catch (err){
+      console.error('[rapcouch] Fehler in der Auto-BPM-Analyse (Erkennung läuft trotzdem weiter):', err);
+    }
     bpmAuto.raf = requestAnimationFrame(loop);
   };
   loop();
