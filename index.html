@@ -726,6 +726,8 @@
       <div id="bpmAutoControls">
         <span id="bpmAutoMeter" title="Live-Pegel des Eingangssignals – bewegt sich das nicht, kommt kein Audio an"><span id="bpmAutoMeterFill"></span></span>
         <span id="bpmAutoStatus"></span>
+        <div class="pillBtn" id="bpmAutoHalfBtn" title="Erkanntes Tempo halbieren (falls auf doppeltes Tempo eingerastet)">½×</div>
+        <div class="pillBtn" id="bpmAutoDoubleBtn" title="Erkanntes Tempo verdoppeln (falls auf halbes Tempo eingerastet)">2×</div>
       </div>
       <div class="secPerBeatBlock" title="Wortwechsel alle X Sekunden – live zu BPM umgerechnet">
         <span class="ctrlUnit">WORT ALLE</span>
@@ -1025,6 +1027,8 @@ const el = {
   bpmAutoControls: document.getElementById('bpmAutoControls'),
   bpmAutoMeterFill: document.getElementById('bpmAutoMeterFill'),
   bpmAutoStatus: document.getElementById('bpmAutoStatus'),
+  bpmAutoHalfBtn: document.getElementById('bpmAutoHalfBtn'),
+  bpmAutoDoubleBtn: document.getElementById('bpmAutoDoubleBtn'),
   tapBtn: document.getElementById('tapBtn'),
   minVal: document.getElementById('minVal'),
   secVal: document.getElementById('secVal'),
@@ -1778,126 +1782,152 @@ const bpmAuto = {
   active: false,
   audioCtx: null,
   stream: null,
-  raf: null,
-  energyHistory: [],   // kurzer gleitender Energie-Schnitt zur Schwellenwert-Berechnung
-  lastBeatAt: 0,
-  intervals: [],        // jüngste Zeitabstände zwischen erkannten Beats (ms)
+  processor: null,      // ScriptProcessorNode – liefert Messwerte im Takt der
+                         // Audio-Engine, unabhängig von der Bildwiederholrate
+  silentGain: null,
+  envelope: [],          // Energie-Hüllkurve, fester Zeitschritt (bufferStepMs)
+  bufferStepMs: 0,
+  lastAnalyseAt: 0,
+  peakLevel: 0.02,       // adaptiver Spitzenwert, für die Live-Pegelanzeige
+  cosmeticAvg: 0.02,     // nur fürs kurze "hit"-Aufblitzen, nicht Teil der BPM-Mathematik
+  smoothedBpm: null,     // über Zeit geglätteter Wert (EMA) – dämpft Sprünge
   lastAppliedBpm: null,
   lastApplyAt: 0,
-  peakLevel: 0.02, // adaptiver, langsam abklingender Spitzenwert zur Pegel-Kalibrierung
-  smoothedBpm: null, // über Zeit geglätteter Wert (EMA) - dämpft Sprünge von Fenster zu Fenster
+  octaveBias: 1,         // manuelle ½×/2×-Korrektur, siehe bpmAutoHalfBtn/bpmAutoDoubleBtn
 };
 
 function bpmAutoResetTracking(){
-  bpmAuto.energyHistory = [];
-  bpmAuto.intervals = [];
-  bpmAuto.lastBeatAt = 0;
-  bpmAuto.lastAppliedBpm = null;
+  bpmAuto.envelope = [];
+  bpmAuto.lastAnalyseAt = 0;
   bpmAuto.peakLevel = 0.02;
+  bpmAuto.cosmeticAvg = 0.02;
   bpmAuto.smoothedBpm = null;
+  bpmAuto.lastAppliedBpm = null;
+  bpmAuto.octaveBias = 1;
 }
 
-function bpmAutoAnalyse(analyser, data){
-  analyser.getByteTimeDomainData(data);
-  // RMS-Energie des (bass-gefilterten) Signals dieses Frames.
-  let sumSquares = 0;
-  for (let i = 0; i < data.length; i++){
-    const v = (data[i] - 128) / 128;
-    sumSquares += v * v;
-  }
-  const rms = Math.sqrt(sumSquares / data.length);
-
-  // Live-Pegelanzeige: läuft IMMER mit, unabhängig davon, ob ein Beat
-  // erkannt wird – so sieht man sofort, ob überhaupt Audio ankommt.
-  bpmAuto.peakLevel = Math.max(rms, bpmAuto.peakLevel * 0.996);
+// Wird bei jedem Audio-Puffer aufgerufen (~10-25ms Takt, exakt getaktet von
+// der Audio-Engine – NICHT von requestAnimationFrame/Bildwiederholrate).
+function bpmAutoPushSample(rms){
+  // Live-Pegelanzeige, läuft immer mit.
+  bpmAuto.peakLevel = Math.max(rms, bpmAuto.peakLevel * 0.999);
   const meterPct = Math.min(100, (rms / Math.max(bpmAuto.peakLevel, 0.015)) * 100);
   el.bpmAutoMeterFill.style.width = meterPct + '%';
-
-  const hist = bpmAuto.energyHistory;
-  hist.push(rms);
-  if (hist.length > 43) hist.shift(); // ca. 0.7s bei ~60fps
-
-  const avg = hist.reduce((a, b) => a + b, 0) / hist.length;
-  const now = performance.now();
-  const minGapMs = 300; // > 200 BPM ist praktisch nie ein echter Kick, sondern Nachschwingen/Snare
-
-  // Beat = deutlicher Ausschlag über dem gleitenden Durchschnitt UND über
-  // einem Anteil des zuletzt gesehenen Spitzenpegels. Passt sich damit
-  // automatisch an leise wie laute Eingangspegel an (kein fester Grenzwert
-  // mehr, der bei manchen Mikrofonen/Kabeln nie erreicht wird).
-  const isBeat = rms > avg * 1.3 && rms > bpmAuto.peakLevel * 0.32 && rms > 0.006
-    && now - bpmAuto.lastBeatAt > minGapMs;
-
-  if (isBeat){
+  // Rein kosmetisches Aufblitzen bei deutlichen Ausschlägen (keine Rolle für
+  // die eigentliche BPM-Berechnung – nur damit sichtbar ist, dass Kicks
+  // ankommen).
+  if (rms > bpmAuto.cosmeticAvg * 1.4 && rms > 0.006){
     el.bpmAutoMeterFill.classList.add('hit');
     setTimeout(() => el.bpmAutoMeterFill.classList.remove('hit'), 90);
-    if (bpmAuto.lastBeatAt > 0){
-      const gap = now - bpmAuto.lastBeatAt;
-      if (gap < 2000){ // > 2s Pause = neuer Song/Break, alte Abstände verwerfen
-        bpmAuto.intervals.push(gap);
-        if (bpmAuto.intervals.length > 10) bpmAuto.intervals.shift();
-      } else {
-        bpmAuto.intervals = [];
-      }
-    }
-    bpmAuto.lastBeatAt = now;
-    bpmAutoEvaluate();
-  } else if (bpmAuto.lastBeatAt > 0 && now - bpmAuto.lastBeatAt > 3000){
-    // Länger keine Beats mehr -> Tracking verwerfen und neu einpendeln lassen.
-    bpmAutoResetTracking();
-    el.bpmAutoStatus.textContent = 'HÖRE ZU …';
-    el.bpmAutoStatus.classList.remove('locked');
   }
+  bpmAuto.cosmeticAvg = bpmAuto.cosmeticAvg * 0.9 + rms * 0.1;
+
+  bpmAuto.envelope.push(rms);
+  const windowMs = 8000; // rollierendes 8-Sekunden-Fenster
+  const maxSamples = Math.ceil(windowMs / bpmAuto.bufferStepMs);
+  if (bpmAuto.envelope.length > maxSamples) bpmAuto.envelope.shift();
+
+  const haveMs = bpmAuto.envelope.length * bpmAuto.bufferStepMs;
+  const minWindowMs = 5000; // mind. 5s Material, bevor die erste Schätzung sinnvoll ist
+  if (haveMs < minWindowMs){
+    el.bpmAutoStatus.textContent = `HÖRE ZU … (${(haveMs / 1000).toFixed(1)}s/5s)`;
+    el.bpmAutoStatus.classList.remove('locked');
+    return;
+  }
+
+  const now = performance.now();
+  if (now - bpmAuto.lastAnalyseAt < 1500) return; // nicht öfter als alle 1,5s neu berechnen
+  bpmAuto.lastAnalyseAt = now;
+  bpmAutoAnalyseTempo();
 }
 
-function bpmAutoEvaluate(){
-  const intervals = bpmAuto.intervals;
-  if (intervals.length < 4) {
-    el.bpmAutoStatus.textContent = `HÖRE ZU … (${intervals.length}/4)`;
-    el.bpmAutoStatus.classList.remove('locked');
-    return;
+// Autokorrelation über die letzten ~8 Sekunden: statt Frame für Frame zu
+// entscheiden "ist DAS ein Beat?", wird geprüft, wie gut sich das gesamte
+// Signal mit einer zeitversetzten Kopie von sich selbst deckt. Die
+// Verschiebung (der "Lag") mit der besten Übereinstimmung entspricht der
+// Taktperiode. Einzelne Fehltreffer/Aussetzer gehen darin unter, weil über
+// Sekunden gemittelt wird statt Einzelentscheidungen zu treffen.
+function bpmAutoAnalyseTempo(){
+  const env = bpmAuto.envelope;
+  const n = env.length;
+
+  // Onset-Stärke = gleichgerichtete Ableitung der Energie-Hüllkurve. Betont
+  // Anschläge (Kicks), unterdrückt langsam schwankenden Grundpegel/Bass-Sustain.
+  const onset = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) onset[i] = Math.max(0, env[i] - env[i - 1]);
+  const meanOnset = onset.reduce((a, b) => a + b, 0) / n;
+  const centered = onset.map(v => v - meanOnset);
+
+  const minBpm = 50, maxBpm = 180;
+  const minLag = Math.max(2, Math.round((60000 / maxBpm) / bpmAuto.bufferStepMs));
+  const maxLag = Math.min(n - 2, Math.round((60000 / minBpm) / bpmAuto.bufferStepMs));
+  if (maxLag <= minLag + 1) return; // zu wenig Material für den geforderten Tempobereich
+
+  let bestLag = -1, bestScore = -Infinity;
+  const scoresByLag = {};
+  for (let lag = minLag; lag <= maxLag; lag++){
+    let sum = 0;
+    const count = n - lag;
+    for (let i = 0; i < count; i++) sum += centered[i] * centered[i + lag];
+    const score = sum / count; // pro Paar normiert, damit alle Lags fair verglichen werden
+    scoresByLag[lag] = score;
+    if (score > bestScore){ bestScore = score; bestLag = lag; }
   }
-  // Jeden Abstand EINZELN in den plausiblen Tempo-Bereich falten (z.B. falls
-  // eine Snare/Hi-Hat im Bassbereich mal einen Halbe-Note-Abstand erzeugt),
-  // BEVOR verglichen wird – verhindert, dass ein einzelner Ausreißer die
-  // ganze Serie als "unstet" erscheinen lässt.
-  const bpmSamples = intervals.map(g => {
-    let bpm = 60000 / g;
-    while (bpm < 50) bpm *= 2;
-    while (bpm > 180) bpm /= 2;
-    return bpm;
-  });
-  const sorted = [...bpmSamples].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)];
-  // Toleranz statt Alles-oder-nichts: erlaubt normales menschliches
-  // Timing/Groove und einzelne Ausreißer, solange die Mehrheit passt.
-  const tolerance = Math.max(3, median * 0.09); // ±9%, mind. ±3 BPM
-  const inTolerance = bpmSamples.filter(b => Math.abs(b - median) <= tolerance).length;
-  const stable = inTolerance / bpmSamples.length >= 0.65;
-  const bpm = Math.round(median);
+  if (bestLag < 0) return;
+
+  // Oktav-Tendenz abfedern: Ein periodisches Kick-Muster korreliert auch bei
+  // ganzzahligen Vielfachen seiner echten Periode stark (halbes/drittel
+  // Tempo). Deshalb NICHT blind das globale Maximum nehmen, sondern die
+  // KÜRZESTE Periode wählen, deren Score nah genug am besten Score liegt –
+  // das trifft meistens die echte Grundperiode statt eines Vielfachen davon.
+  // Perfekt lösen lässt sich das damit nicht (siehe ½×/2×-Korrekturknopf).
+  const octaveThreshold = bestScore * 0.85;
+  let chosenLag = bestLag;
+  for (let lag = minLag; lag < bestLag; lag++){
+    if (scoresByLag[lag] >= octaveThreshold){ chosenLag = lag; break; }
+  }
+
+  // Parabolische Interpolation um den gewählten Lag: liefert eine Nachkomma-
+  // genaue Position statt nur ganzzahliger Schritte – sonst wäre die
+  // BPM-Auflösung bei diesem Zeitraster spürbar grob (mehrere BPM pro Schritt).
+  const y0 = scoresByLag[chosenLag - 1] ?? scoresByLag[chosenLag];
+  const y1 = scoresByLag[chosenLag];
+  const y2 = scoresByLag[chosenLag + 1] ?? scoresByLag[chosenLag];
+  const denom = (y0 - 2 * y1 + y2);
+  const delta = Math.abs(denom) > 1e-12 ? Math.max(-1, Math.min(1, 0.5 * (y0 - y2) / denom)) : 0;
+  const interpLag = chosenLag + delta;
+
+  const periodMs = interpLag * bpmAuto.bufferStepMs;
+  // Manuelle ½×/2×-Korrektur (bpmAutoHalfBtn/bpmAutoDoubleBtn) einrechnen,
+  // falls die Person schon einmal nachjustiert hat – bleibt für den Rest
+  // dieser Hör-Sitzung bestehen, statt bei jeder Neuberechnung zu verpuffen.
+  const rawBpm = (60000 / periodMs) * bpmAuto.octaveBias;
+  const bpm = Math.round(rawBpm);
+
+  // Konfidenz: wie stark der gefundene Rhythmus wirklich heraussticht, im
+  // Verhältnis zur Gesamtenergie des Onset-Signals. Kein fester Ja/Nein-
+  // Schwellenwert pro Treffer mehr, sondern ein Maß für "wie periodisch ist
+  // das Signal insgesamt gerade wirklich".
+  const zeroLag = centered.reduce((a, v) => a + v * v, 0) / n;
+  const confidence = zeroLag > 0 ? Math.max(0, Math.min(1, y1 / zeroLag)) : 0;
+  const stable = confidence > 0.15;
 
   if (!stable){
-    el.bpmAutoStatus.textContent = `~${bpm} BPM (${inTolerance}/${bpmSamples.length} stabil)`;
+    el.bpmAutoStatus.textContent = `~${bpm} BPM (Konfidenz ${Math.round(confidence * 100)}%)`;
     el.bpmAutoStatus.classList.remove('locked');
     return;
   }
 
-  // Über Zeit glätten (EMA), statt den rohen Fenster-Wert direkt zu
-  // übernehmen – ein einzelnes Zeitfenster kann leicht mal 1-3 BPM daneben
-  // liegen, auch wenn es "stabil" genug für sich ist. Das dämpft genau das
-  // "hüpft bei ein und demselben Beat mehrfach"-Verhalten.
-  bpmAuto.smoothedBpm = bpmAuto.smoothedBpm === null
-    ? median
-    : bpmAuto.smoothedBpm * 0.82 + median * 0.18;
+  bpmAuto.smoothedBpm = bpmAuto.smoothedBpm === null ? rawBpm : bpmAuto.smoothedBpm * 0.82 + rawBpm * 0.18;
   const smoothed = Math.round(bpmAuto.smoothedBpm);
 
-  el.bpmAutoStatus.textContent = `${smoothed} BPM erkannt`;
+  el.bpmAutoStatus.textContent = `${smoothed} BPM erkannt (${Math.round(confidence * 100)}%)`;
   el.bpmAutoStatus.classList.add('locked');
 
   const now = performance.now();
   // Erst ab 2 BPM Unterschied UND min. 4s seit der letzten Übernahme wird
-  // überhaupt neu angewendet – verhindert, dass der Beat-Timer mehrfach
-  // innerhalb desselben Songs neu gestartet wird.
+  // überhaupt neu angewendet – der Beat-Timer soll nicht mehrfach im selben
+  // Song neu starten.
   const changed = bpmAuto.lastAppliedBpm === null || Math.abs(smoothed - bpmAuto.lastAppliedBpm) >= 2;
   const cooledDown = now - bpmAuto.lastApplyAt > 4000;
   if (changed && cooledDown){
@@ -1905,17 +1935,15 @@ function bpmAutoEvaluate(){
     bpmAuto.lastApplyAt = now;
     try {
       setBpm(smoothed);
-      // Deutliche Bestätigung, dass die Übernahme wirklich stattgefunden hat
-      // (nicht nur "erkannt", sondern auch tatsächlich am Regler angekommen).
       el.bpmVal.classList.remove('autoApplied');
       void el.bpmVal.offsetWidth;
       el.bpmVal.classList.add('autoApplied');
-      console.debug('[rapcouch] Auto-BPM übernommen:', smoothed);
+      console.debug('[rapcouch] Auto-BPM übernommen:', smoothed, '– Konfidenz:', confidence.toFixed(2));
     } catch (err){
       console.error('[rapcouch] Fehler beim Übernehmen der Auto-BPM:', err);
     }
   } else {
-    console.debug('[rapcouch] Auto-BPM stabil bei', bpm, '- keine neue Übernahme (changed:', changed, 'cooledDown:', cooledDown, ')');
+    console.debug('[rapcouch] Auto-BPM stabil bei', bpm, '(Konfidenz', confidence.toFixed(2), ') - keine neue Übernahme (changed:', changed, 'cooledDown:', cooledDown, ')');
   }
 }
 
@@ -1933,42 +1961,66 @@ async function startBpmAuto(){
   bpmAuto.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const source = bpmAuto.audioCtx.createMediaStreamSource(bpmAuto.stream);
   // Tiefpass auf Kickdrum-/Bass-Bereich: macht die Erkennung robust gegen
-  // Rap-Vocals, Publikum etc. und reagiert v.a. auf den Beat selbst.
+  // Rap-Vocals, Publikum, Hi-Hats etc. und reagiert v.a. auf den Beat selbst.
   const lowpass = bpmAuto.audioCtx.createBiquadFilter();
   lowpass.type = 'lowpass';
   lowpass.frequency.value = 150;
   lowpass.Q.value = 1;
-  const analyser = bpmAuto.audioCtx.createAnalyser();
-  analyser.fftSize = 1024;
+
+  // ScriptProcessorNode statt AnalyserNode+requestAnimationFrame: liefert
+  // Energiewerte im festen Takt der Audio-Engine statt im Takt der
+  // Bildwiederholrate – das war die Hauptursache der bisherigen zeitlichen
+  // Ungenauigkeit (deprecated API, aber weiterhin überall inkl. Firefox
+  // zuverlässig unterstützt; ein AudioWorklet bräuchte eine separate
+  // Moduldatei und wäre für dieses Single-File-Setup unnötig kompliziert).
+  const bufferSize = 512;
+  bpmAuto.bufferStepMs = (bufferSize / bpmAuto.audioCtx.sampleRate) * 1000;
+  const processor = bpmAuto.audioCtx.createScriptProcessor(bufferSize, 1, 1);
+  processor.onaudioprocess = (e) => {
+    if (!bpmAuto.active) return;
+    const input = e.inputBuffer.getChannelData(0);
+    let sum = 0;
+    for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+    const rms = Math.sqrt(sum / input.length);
+    try {
+      bpmAutoPushSample(rms);
+    } catch (err){
+      console.error('[rapcouch] Fehler in der Auto-BPM-Analyse (Erkennung läuft trotzdem weiter):', err);
+    }
+  };
+
+  // ScriptProcessor muss (mittelbar) mit der Ausgabe verbunden sein, damit
+  // der Callback zuverlässig feuert – über einen STUMMEN Gain-Knoten, damit
+  // das Mikrofon-/Kabelsignal NICHT hörbar über die Lautsprecher zurück-
+  // gespielt wird (sonst Rückkopplung/Echo!).
+  bpmAuto.silentGain = bpmAuto.audioCtx.createGain();
+  bpmAuto.silentGain.gain.value = 0;
   source.connect(lowpass);
-  lowpass.connect(analyser);
-  const data = new Uint8Array(analyser.fftSize);
+  lowpass.connect(processor);
+  processor.connect(bpmAuto.silentGain);
+  bpmAuto.silentGain.connect(bpmAuto.audioCtx.destination);
+  bpmAuto.processor = processor;
 
   bpmAutoResetTracking();
   bpmAuto.active = true;
   el.bpmAutoBtn.classList.add('listening');
   el.bpmAutoControls.classList.add('show');
-  el.bpmAutoStatus.textContent = 'HÖRE ZU …';
-
-  const loop = () => {
-    if (!bpmAuto.active) return;
-    try {
-      bpmAutoAnalyse(analyser, data);
-    } catch (err){
-      console.error('[rapcouch] Fehler in der Auto-BPM-Analyse (Erkennung läuft trotzdem weiter):', err);
-    }
-    bpmAuto.raf = requestAnimationFrame(loop);
-  };
-  loop();
+  el.bpmAutoStatus.textContent = 'HÖRE ZU … (0.0s/5s)';
 }
 
 function stopBpmAuto(){
   bpmAuto.active = false;
-  if (bpmAuto.raf) cancelAnimationFrame(bpmAuto.raf);
+  if (bpmAuto.processor){
+    bpmAuto.processor.onaudioprocess = null;
+    bpmAuto.processor.disconnect();
+  }
+  if (bpmAuto.silentGain) bpmAuto.silentGain.disconnect();
   if (bpmAuto.stream) bpmAuto.stream.getTracks().forEach(t => t.stop());
   if (bpmAuto.audioCtx) bpmAuto.audioCtx.close();
   bpmAuto.audioCtx = null;
   bpmAuto.stream = null;
+  bpmAuto.processor = null;
+  bpmAuto.silentGain = null;
   el.bpmAutoBtn.classList.remove('listening');
   el.bpmAutoControls.classList.remove('show');
   el.bpmAutoMeterFill.style.width = '0%';
@@ -1980,6 +2032,25 @@ el.bpmAutoBtn.addEventListener('click', () => {
   if (isMpLocked()) return;
   if (bpmAuto.active) stopBpmAuto(); else startBpmAuto();
 });
+
+// Manuelle Oktav-Korrektur: passt sowohl den aktuellen BPM-Wert sofort an,
+// als auch die interne Vorspannung (octaveBias), damit die Auto-Erkennung
+// die Korrektur nicht bei der nächsten Neuberechnung (alle 1,5s) wieder
+// rückgängig macht.
+function bpmAutoApplyOctaveCorrection(factor){
+  if (isMpLocked() || !bpmAuto.active) return;
+  bpmAuto.octaveBias *= factor;
+  if (bpmAuto.smoothedBpm !== null) bpmAuto.smoothedBpm *= factor;
+  const corrected = Math.round(state.bpm * factor);
+  bpmAuto.lastAppliedBpm = corrected;
+  bpmAuto.lastApplyAt = performance.now();
+  setBpm(corrected);
+  el.bpmVal.classList.remove('autoApplied');
+  void el.bpmVal.offsetWidth;
+  el.bpmVal.classList.add('autoApplied');
+}
+el.bpmAutoHalfBtn.addEventListener('click', () => bpmAutoApplyOctaveCorrection(0.5));
+el.bpmAutoDoubleBtn.addEventListener('click', () => bpmAutoApplyOctaveCorrection(2));
 
 /* ---- Thema interval controls ---- */
 function updateIntervalState(){
