@@ -88,20 +88,28 @@
 
   /* ---------- mode row ---------- */
   #modeRow{
-    display:flex; align-items:center; justify-content:center;
-    flex-wrap:wrap; gap:10px;
+    display:flex; flex-direction:column; align-items:center;
+    gap:12px;
     font-family: 'JetBrains Mono','SFMono-Regular',Consolas,monospace;
   }
   .modeToggle{
     display:flex; border:1px solid var(--line); border-radius:20px; overflow:hidden;
   }
   .modeBtn{
-    padding:6px 14px; font-size:11px; letter-spacing:0.1em;
+    padding:7px 16px; font-size:11px; letter-spacing:0.1em;
     color: var(--fg-dim); cursor:pointer;
   }
   .modeBtn.active{ background: var(--accent); color:#0a0a0a; font-weight:700; }
 
-  .modeControls{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; }
+  /* Regler/Feintuning bewusst zurückgenommen (kleiner, gedeckter, mit
+     trennender Linie), damit die Mode-Tabs klar die primäre Navigation
+     bleiben statt im selben visuellen Gewicht mitzuschwimmen. */
+  .modeControls{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center;
+    padding-top:10px;
+    border-top: 1px solid var(--line);
+    width: 100%;
+  }
   .modeControls.hidden{ display:none; }
 
   #ctrlVal, .ctrlVal{
@@ -646,20 +654,50 @@
 
   /* ---------- Beamer-/Präsentationsmodus ----------
      Aktiv nur im echten Vollbild (#app.fs). Nach kurzer Mausinaktivität
-     bekommt #app zusätzlich die Klasse .fs-idle: dann verschwindet alles
-     außer Logo, Wort/Bild-Bühne und der Takt-/Wechsel-Anzeige. Jede
-     Mausbewegung/Taste holt die Bedienelemente sofort zurück. */
-  #app.fs #topbarRight, #app.fs #modeRow, #app.fs #categoryRow,
-  #app.fs #statusrow, #app.fs #controls, #app.fs #hint, #app.fs #turnChips{
-    transition: opacity 0.35s ease;
+     wird zunächst sanft ausgeblendet (.fs-fading), danach wird der Platz
+     dieser Zeilen wirklich freigegeben (.fs-idle, display:none) – erst DAS
+     lässt Wort/Bild tatsächlich in die Höhe wachsen, statt nur unsichtbar
+     Platz zu belegen. Jede Mausbewegung/Taste holt beides sofort zurück. */
+  #app.fs.fs-fading #topbarRight, #app.fs.fs-fading #modeRow, #app.fs.fs-fading #categoryRow,
+  #app.fs.fs-fading #statusrow, #app.fs.fs-fading #controls, #app.fs.fs-fading #hint, #app.fs.fs-fading #turnChips{
+    opacity:0; pointer-events:none; transition: opacity 0.3s ease;
   }
   #app.fs.fs-idle #topbarRight, #app.fs.fs-idle #modeRow, #app.fs.fs-idle #categoryRow,
-  #app.fs.fs-idle #statusrow, #app.fs.fs-idle #controls, #app.fs.fs-idle #hint, #app.fs.fs-idle #turnChips{
-    opacity:0; pointer-events:none;
+  #app.fs.fs-idle #statusrow, #app.fs.fs-idle #controls, #app.fs.fs-idle #hint{
+    display:none;
   }
+  #app.fs.fs-idle #turnChips{ display:none; }
   #app.fs.fs-idle{ cursor:none; }
   #app.fs.fs-idle #bagImgWrap{ max-width: 900px; }
   #app.fs.fs-idle .brand{ opacity:1; }
+
+
+  /* ---------- Unterstützer-QR-Code (immer sichtbar, unten rechts) ---------- */
+  #supportQr{
+    position:fixed; right:16px; bottom:14px; z-index:5;
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    width: 128px;
+    pointer-events:none;
+  }
+  #supportQrText{
+    font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
+    font-size:9px; font-weight:700; letter-spacing:0.08em; line-height:1.35;
+    color: var(--fg); text-align:center; text-transform:uppercase;
+    text-wrap: balance;
+  }
+  #supportQrImg{
+    width:100%; height:auto; display:block;
+    background:#fff; border-radius:8px;
+  }
+  #app.fs ~ #supportQr{ width:150px; }
+  #app.fs ~ #supportQr #supportQrText{ font-size:11px; }
+  #app.fs.fs-idle ~ #supportQr{ width:180px; }
+  #app.fs.fs-idle ~ #supportQr #supportQrText{ font-size:13px; }
+  @media (max-width: 480px){
+    #supportQr{ width:72px; right:10px; bottom:10px; }
+    #supportQrText{ font-size:7px; }
+    #hint{ display:none; } /* Tastenkürzel sind auf Touch-Geräten irrelevant und würden den QR-Code überlappen */
+  }
 
   @media (max-width: 480px){
     input[type=range]{ width: 64px; }
@@ -962,6 +1000,12 @@
 <script src="situations.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+
+  <div id="supportQr">
+    <div id="supportQrText">Unterstütze uns und scanne den QR-Code</div>
+    <img id="supportQrImg" src="qr-support.png" alt="QR-Code zur Unterstützung von RAPCOUCH">
+  </div>
+
 <script src="firebase-config.js"></script>
 <script src="unsplash-config.js"></script>
 <script>
@@ -1265,9 +1309,15 @@ function fitWord(){
     return;
   }
 
-  const maxPx = isFS
+  // Im Idle-Präsentationsmodus geben wir echten Platz frei (siehe .fs-idle
+  // display:none-Regeln) – kurze Wörter sollen diesen auch tatsächlich für
+  // sich nutzen, statt nur an der Breite gedeckelt zu bleiben. Deshalb hier
+  // zusätzlich einen Höhen-Anteil der Bühne als Obergrenze mit einbeziehen.
+  const widthCap = isFS
     ? Math.min(window.innerWidth * (isIdle ? 0.19 : 0.15), isIdle ? 280 : 200)
     : Math.min(window.innerWidth * 0.12, 118);
+  const heightCap = isIdle ? el.stage.clientHeight * 0.5 : Infinity;
+  const maxPx = Math.min(widthCap, heightCap);
   const minPx = 18;
   const maxWidth = el.stage.clientWidth * 0.92;
 
@@ -2106,25 +2156,36 @@ document.addEventListener('fullscreenchange', () => {
     resetIdleTimer();
   } else {
     clearTimeout(idleTimer);
-    el.app.classList.remove('fs-idle');
+    clearTimeout(idleFadeTimer);
+    el.app.classList.remove('fs-idle', 'fs-fading');
     fitWord();
   }
 });
 
 /* ---- Beamer-/Präsentationsmodus: Bedienelemente bei Mausstillstand
-   ausblenden, nur Logo + Wort/Bild + Takt-/Wechsel-Anzeige bleiben. ---- */
+   ausblenden, nur Logo + Wort/Bild + Takt-/Wechsel-Anzeige bleiben.
+   Zweistufig: erst sanft ausblenden (.fs-fading), danach den Platz
+   wirklich freigeben (.fs-idle) – sonst bliebe die Fläche trotz
+   Unsichtbarkeit reserviert und Wort/Bild könnten nicht größer werden. ---- */
 const IDLE_MS = 2500;
+const IDLE_FADE_MS = 320; // muss zur CSS-transition-Dauer von .fs-fading passen
 let idleTimer = null;
+let idleFadeTimer = null;
 function resetIdleTimer(){
-  if (el.app.classList.contains('fs-idle')){
-    el.app.classList.remove('fs-idle');
+  if (el.app.classList.contains('fs-idle') || el.app.classList.contains('fs-fading')){
+    el.app.classList.remove('fs-idle', 'fs-fading');
     fitWord();
   }
   clearTimeout(idleTimer);
+  clearTimeout(idleFadeTimer);
   if (document.fullscreenElement){
     idleTimer = setTimeout(() => {
-      el.app.classList.add('fs-idle');
-      fitWord();
+      el.app.classList.add('fs-fading');
+      idleFadeTimer = setTimeout(() => {
+        el.app.classList.remove('fs-fading');
+        el.app.classList.add('fs-idle');
+        fitWord();
+      }, IDLE_FADE_MS);
     }, IDLE_MS);
   }
 }
