@@ -672,17 +672,22 @@
   #app.fs.fs-idle .brand{ opacity:1; }
 
 
-  /* ---------- Unterstützer-QR-Code (immer sichtbar, unten rechts) ---------- */
+  /* ---------- Unterstützer-QR-Code (immer sichtbar, unten rechts) ----------
+     Bewusst STATISCH: Größe hängt nur von der Fenstergröße ab, nicht von
+     Inhalt, Modus oder Wort – ein ständig mitwachsender/schrumpfender Code
+     würde vom Wort ablenken. Überlappungen werden stattdessen durch das
+     Layout vermieden (Hinweiszeile auf schmalen Fenstern aus, Größe an Höhe
+     UND Breite gekoppelt, sodass der Code immer in der freien Ecke bleibt). */
+  :root{ --qr: clamp(72px, min(13vh, 15vw), 180px); }
   #supportQr{
     position:fixed; right:16px; bottom:14px; z-index:5;
     display:flex; flex-direction:column; align-items:center; gap:6px;
-    width: 128px;
+    width: var(--qr);
     pointer-events:none;
-    transition: width 0.2s ease;
   }
   #supportQrText{
     font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
-    font-size:9px; font-weight:700; letter-spacing:0.08em; line-height:1.35;
+    font-size: max(7px, calc(var(--qr) * 0.085)); font-weight:700; letter-spacing:0.08em; line-height:1.35;
     color: var(--fg); text-align:center; text-transform:uppercase;
     text-wrap: balance;
   }
@@ -690,11 +695,10 @@
     width:100%; height:auto; display:block;
     background:#fff; border-radius:8px;
   }
-  @media (max-width: 480px){
+  @media (max-width: 900px){
     #supportQr{ right:10px; bottom:10px; }
-    #hint{ display:none; } /* Tastenkürzel sind auf Touch-Geräten irrelevant und würden den QR-Code überlappen */
+    #hint{ display:none; } /* Tastenkürzel sind auf kleinen Fenstern/Touch kaum relevant und würden den QR-Code berühren */
   }
-
   @media (max-width: 480px){
     input[type=range]{ width: 64px; }
     #app{ gap: 10px; }
@@ -2595,81 +2599,6 @@ el.secPerBeatVal.textContent = secPerWordChange(state.bpm).toFixed(1);
 initMultiplayer();
 window.addEventListener('beforeunload', () => { if (bpmAuto.active) stopBpmAuto(); });
 
-/* ---- Unterstützer-QR-Code: weicht Wörtern/Bedienelementen dynamisch aus ----
-   Der Code soll immer sichtbar sein, aber nichts verdecken. Statt fester
-   Größen wird laufend gemessen, ob er sichtbare Inhalte berührt, und er wird
-   dann schrittweise kleiner (erst mit, dann ohne Beschriftung), bis nichts
-   mehr überlappt. Bei viel Platz (Beamer-Vollbild) darf er wieder wachsen. */
-const supportQr = {
-  box: document.getElementById('supportQr'),
-  text: document.getElementById('supportQrText'),
-  size: 0,
-};
-function supportQrVisibleRects(){
-  const rects = [];
-  const nodes = document.querySelectorAll('#app *');
-  for (const n of nodes){
-    // nur "Blätter" (Text/Controls) prüfen, nicht große Container
-    if (n.children.length && !n.matches('.modeToggle, .chip, .pillBtn, .iconbtn, #playBtn, #bagImgWrap')) continue;
-    if (n.matches('#bagImg, #bagPlaceholder')) continue; // #bagImgWrap deckt das ab
-    let r = n.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2) continue;
-    // Reiner Text in Blockelementen (z.B. Hinweiszeile): nur die tatsächliche
-    // Textbreite zählen, nicht die volle Zeilenbreite des Containers.
-    if (!n.children.length && n.textContent.trim() && !n.matches('.pillBtn, .chip, .modeBtn, .step, button')){
-      const rg = document.createRange();
-      rg.selectNodeContents(n);
-      const tr = rg.getBoundingClientRect();
-      if (tr.width > 0 && tr.height > 0) r = tr;
-    }
-    // unsichtbar? (display:none, opacity 0 an sich oder einem Vorfahren)
-    let hidden = false;
-    for (let a = n; a && a.id !== 'app'; a = a.parentElement){
-      const cs = getComputedStyle(a);
-      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) < 0.05){ hidden = true; break; }
-    }
-    if (hidden) continue;
-    // reine Layout-Spacer ohne sichtbaren Inhalt überspringen
-    if (!n.textContent.trim() && !n.matches('svg, input, img, .dot, #bagImgWrap, #playBtn, .iconbtn, .step, #turnTrack, #themaTrack, #bagTrack, .beatDot, #beatrow > *')) continue;
-    rects.push(r);
-  }
-  return rects;
-}
-function supportQrOverlaps(rects){
-  const q = supportQr.box.getBoundingClientRect();
-  const m = 8; // Mindestabstand
-  return rects.some(r => !(r.right + m < q.left || r.left - m > q.right || r.bottom + m < q.top || r.top - m > q.bottom));
-}
-function layoutSupportQr(){
-  const small = window.innerWidth <= 480;
-  const isFS = el.app.classList.contains('fs');
-  const isIdle = el.app.classList.contains('fs-idle');
-  const maxSize = small ? 72 : isIdle ? 190 : isFS ? 150 : 128;
-  const minSize = 44;
-  const rects = supportQrVisibleRects();
-  let chosen = minSize, found = false;
-  for (let size = maxSize; size >= minSize; size -= 6){
-    // Beschriftung nur, wenn der Code groß genug ist, dass sie lesbar bleibt
-    const withText = size >= 64;
-    supportQr.text.style.display = withText ? '' : 'none';
-    supportQr.text.style.fontSize = Math.max(7, Math.min(13, size * 0.085)) + 'px';
-    supportQr.box.style.transition = 'none';
-    supportQr.box.style.width = size + 'px';
-    if (!supportQrOverlaps(rects)){ chosen = size; found = true; break; }
-  }
-  if (!found){ // nichts passt: kleinste Variante ohne Beschriftung
-    supportQr.text.style.display = 'none';
-    supportQr.box.style.width = minSize + 'px';
-  }
-  if (chosen !== supportQr.size){ supportQr.size = chosen; }
-  supportQr.box.style.transition = '';
-}
-window.addEventListener('resize', layoutSupportQr);
-document.addEventListener('fullscreenchange', () => setTimeout(layoutSupportQr, 50));
-// Wörter, Modi, Bilder und Idle-Übergänge ändern sich ständig – deshalb
-// zusätzlich ein günstiger regelmäßiger Check statt Hooks an jeder Stelle.
-setInterval(layoutSupportQr, 400);
-layoutSupportQr();
 
 </script>
 </body>
