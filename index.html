@@ -108,7 +108,7 @@
     display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center;
     padding-top:10px;
     border-top: 1px solid var(--line);
-    width: 100%;
+    width: min(100%, 820px);
   }
   .modeControls.hidden{ display:none; }
 
@@ -694,6 +694,16 @@
   #supportQrImg{
     width:100%; height:auto; display:block;
     background:#fff; border-radius:8px;
+  }
+  /* Breite Fenster/Beamer: oberes Drittel rechts, ~30% größer – dort ist neben
+     den (zentrierten) Reglern und unterhalb der Vollbild-Buttons freie Fläche,
+     und das Wort in der Mitte bleibt unberührt. Die Größe wird zusätzlich an
+     die freie Breite neben der Regler-Zeile gekoppelt, damit nie etwas
+     überlappt. Schmale Fenster (Tablet/Handy) haben dort keinen Platz und
+     behalten die Ecke unten rechts. */
+  @media (min-width: 1100px){
+    :root{ --qr: clamp(72px, min(17vh, 19.5vw, calc((100vw - 780px) / 2 - 24px), calc((33vh - max(84px, 9vh)) / 1.35)), 234px); }
+    #supportQr{ top: max(84px, 9vh); bottom: auto; right: 16px; }
   }
   @media (max-width: 900px){
     #supportQr{ right:10px; bottom:10px; }
