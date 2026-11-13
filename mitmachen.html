@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RAPCOUCH – Dein Wort</title>
+<style>
+  :root{ --bg:#0a0a0a; --bg-raised:#121212; --fg:#ededea; --fg-dim:#6b6b68; --accent:#ff4d1c; --line:#232320; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--fg);
+    font-family:'Helvetica Neue',Arial,sans-serif; }
+  body{ display:flex; flex-direction:column; align-items:center; padding:28px 20px 40px; min-height:100vh; }
+  .brand{ font-family:'Arial Black',Arial,sans-serif; font-weight:900; letter-spacing:.14em; font-size:20px; color:var(--fg-dim); }
+  .brand b{ color:var(--fg); }
+  .handle{ font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--fg-dim); margin-top:2px; text-align:center; }
+  main{ width:100%; max-width:420px; margin-top:34px; }
+  h1{ font-size:28px; line-height:1.15; margin:0 0 8px; letter-spacing:.01em; }
+  p.lead{ margin:0 0 22px; color:var(--fg-dim); font-size:15px; line-height:1.45; }
+  label{ display:block; font-family:ui-monospace,Consolas,monospace; font-size:11px; letter-spacing:.14em; color:var(--fg-dim); margin-bottom:8px; }
+  input[type=text]{
+    width:100%; font-size:22px; padding:16px 14px; border-radius:10px;
+    background:var(--bg-raised); border:1px solid var(--line); color:var(--fg); outline:none;
+  }
+  input[type=text]:focus{ border-color:var(--accent); }
+  button{
+    width:100%; margin-top:14px; padding:16px; border:none; border-radius:10px;
+    background:var(--accent); color:#0a0a0a; font-weight:800; font-size:17px; letter-spacing:.06em; cursor:pointer;
+  }
+  button:disabled{ opacity:.45; cursor:default; }
+  #msg{ min-height:44px; margin-top:16px; font-size:15px; line-height:1.4; }
+  #msg.ok{ color:var(--accent); }
+  #msg.err{ color:#ff8a70; }
+  #closed{ display:none; padding:18px; border:1px solid var(--line); border-radius:10px; background:var(--bg-raised);
+    color:var(--fg-dim); font-size:15px; line-height:1.45; }
+  #conn{ margin-top:26px; font-family:ui-monospace,Consolas,monospace; font-size:10px; letter-spacing:.1em; color:var(--fg-dim); text-align:center; }
+  .fine{ margin-top:22px; font-size:12px; color:var(--fg-dim); line-height:1.5; }
+</style>
+</head>
+<body>
+  <div class="brand">RAP<b>COUCH</b></div>
+  <div class="handle">@rap.couch</div>
+
+  <main>
+    <h1>Dein Wort fürs Freestyle</h1>
+    <p class="lead">Schick uns ein Wort. Wenn es durch die Prüfung kommt, taucht es live auf dem Beamer auf, und jemand muss darüber rappen.</p>
+
+    <div id="closed">Gerade nimmt RapCouch keine Wörter an. Warte kurz, die Seite aktualisiert sich von selbst.</div>
+
+    <div id="form">
+      <label for="w">EIN WORT</label>
+      <input type="text" id="w" maxlength="24" autocomplete="off" autocapitalize="sentences" spellcheck="false" placeholder="z.B. Couch">
+      <button id="send" type="button">ABSCHICKEN</button>
+    </div>
+    <div id="msg" role="status" aria-live="polite"></div>
+    <div id="conn">VERBINDE …</div>
+    <div class="fine">Nur ein Wort aus Buchstaben (2–24 Zeichen). Die Moderation entscheidet, ob und wann es erscheint. Es werden keine persönlichen Daten gespeichert.</div>
+  </main>
+
+<!-- Bewusst KEIN Firebase-SDK: Die Seite spricht die Datenbank per einfacher REST-Anfrage an.
+     So hält kein Handy eine dauerhafte Verbindung offen (der kostenlose Firebase-Tarif erlaubt nur
+     100 gleichzeitige Verbindungen), und die Seite lädt auf dem Handy deutlich schneller. -->
+<script src="firebase-config.js"></script>
+<script src="audience-config.js"></script>
+<script>
+(function(){
+  const COOLDOWN_MS = 20000;          // Mindestabstand zwischen zwei Einreichungen pro Handy
+  const MAX_PER_10_MIN = 6;           // und Obergrenze pro 10 Minuten
+  const POLL_MS = 10000;              // wie oft nachgesehen wird, ob Einreichungen offen sind
+  const $ = (id) => document.getElementById(id);
+  const msg = (t, cls) => { $('msg').textContent = t || ''; $('msg').className = cls || ''; };
+
+  const event = audienceEventFromUrl();
+  const DB = ((typeof FIREBASE_CONFIG !== 'undefined' && FIREBASE_CONFIG.databaseURL) || '').replace(/\/$/, '');
+  const base = DB + '/audience/' + event;
+  let isOpen = false;
+  let online = false;
+
+  function deviceId(){
+    try {
+      let d = localStorage.getItem('rc-device');
+      if (!d){ d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4); localStorage.setItem('rc-device', d); }
+      return d;
+    } catch (e){ return 'anon' + Math.random().toString(36).slice(2, 8); }
+  }
+  function recentSubmits(){
+    try { return JSON.parse(localStorage.getItem('rc-subs') || '[]').filter(t => Date.now() - t < 600000); } catch (e){ return []; }
+  }
+  function remember(){
+    try { const r = recentSubmits(); r.push(Date.now()); localStorage.setItem('rc-subs', JSON.stringify(r)); } catch (e){}
+  }
+
+  function render(){
+    $('form').style.display = isOpen ? '' : 'none';
+    $('closed').style.display = isOpen ? 'none' : 'block';
+    $('conn').textContent = online ? 'VERBUNDEN' : 'KEINE VERBINDUNG – VERSUCHE ES WEITER';
+  }
+
+  // fetch mit Zeitlimit, damit ein hängendes Netz die Seite nicht blockiert
+  async function req(url, opts){
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 10000);
+    try { return await fetch(url, Object.assign({ cache: 'no-store', signal: ctl.signal }, opts || {})); }
+    finally { clearTimeout(t); }
+  }
+
+  async function checkOpen(){
+    try {
+      const r = await req(base + '/open.json');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      isOpen = (await r.json()) === true;
+      online = true;
+    } catch (e){ online = false; }
+    render();
+    return isOpen;
+  }
+
+  if (!DB){
+    $('conn').textContent = 'NICHT KONFIGURIERT';
+    msg('Die Seite ist nicht eingerichtet (Datenbank-Adresse fehlt).', 'err');
+    render();
+    return;
+  }
+
+  // Alle paar Sekunden nachsehen (nur wenn die Seite sichtbar ist) – kurze Einzelanfragen
+  // statt dauerhafter Verbindung. Leicht versetzt, damit nicht alle Handys gleichzeitig fragen.
+  let timer = null;
+  function schedule(){ clearTimeout(timer); timer = setTimeout(async () => { if (!document.hidden) await checkOpen(); schedule(); }, POLL_MS + Math.random() * 3000); }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden){ checkOpen(); schedule(); } });
+  render();
+  checkOpen();
+  schedule();
+
+  async function send(){
+    msg('');
+    const w = audienceNormalizeWord($('w').value);
+    if (!w){ msg('Bitte nur ein Wort aus Buchstaben (2–24 Zeichen).', 'err'); return; }
+    const subs = recentSubmits();
+    if (subs.length >= MAX_PER_10_MIN){ msg('Das waren schon einige Wörter von dir. Gönn den anderen auch mal etwas Platz.', 'err'); return; }
+    const last = subs.length ? Math.max.apply(null, subs) : 0;
+    const wait = COOLDOWN_MS - (Date.now() - last);
+    if (wait > 0){ msg('Kurz warten: noch ' + Math.ceil(wait / 1000) + ' Sekunden bis zum nächsten Wort.', 'err'); return; }
+
+    $('send').disabled = true;
+    try {
+      // Direkt vor dem Absenden frisch prüfen, ob Einreichungen noch offen sind.
+      if (!(await checkOpen())){ msg(online ? 'Gerade werden keine Wörter angenommen.' : 'Keine Verbindung. Versuch es gleich nochmal.', 'err'); return; }
+      const r = await req(base + '/suggestions.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ w: w, t: { '.sv': 'timestamp' }, d: deviceId() })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      remember();
+      $('w').value = '';
+      msg('Danke! „' + w + '“ ist eingegangen. Ob und wann es erscheint, entscheidet die Moderation.', 'ok');
+    } catch (e){
+      msg('Das hat nicht geklappt (Verbindung oder Berechtigung). Versuch es gleich nochmal.', 'err');
+    } finally {
+      setTimeout(() => { $('send').disabled = false; }, 1500);
+    }
+  }
+  $('send').addEventListener('click', send);
+  $('w').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+})();
+</script>
+</body>
+</html>

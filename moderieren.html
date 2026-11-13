@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RAPCOUCH – Moderation</title>
+<style>
+  :root{ --bg:#0a0a0a; --bg-raised:#121212; --fg:#ededea; --fg-dim:#6b6b68; --accent:#ff4d1c; --line:#232320; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--fg); font-family:'Helvetica Neue',Arial,sans-serif; }
+  body{ padding:22px 16px 40px; max-width:520px; margin:0 auto; }
+  h1{ font-size:20px; margin:0 0 4px; letter-spacing:.04em; }
+  .sub{ font-family:ui-monospace,Consolas,monospace; font-size:11px; letter-spacing:.08em; color:var(--fg-dim); margin-bottom:18px; }
+  .row{ display:flex; gap:8px; }
+  input[type=password], input[type=text]{
+    flex:1; font-size:16px; padding:12px; border-radius:8px; background:var(--bg-raised);
+    border:1px solid var(--line); color:var(--fg); outline:none;
+  }
+  button{ border:none; border-radius:8px; font-weight:800; letter-spacing:.05em; cursor:pointer; font-size:14px; }
+  .go{ padding:12px 16px; background:var(--accent); color:#0a0a0a; }
+  #status{ margin:14px 0; font-family:ui-monospace,Consolas,monospace; font-size:11px; letter-spacing:.06em; color:var(--fg-dim); }
+  #status.err{ color:#ff8a70; } #status.ok{ color:var(--accent); }
+  #list{ display:flex; flex-direction:column; gap:10px; margin-top:8px; }
+  .item{ display:flex; align-items:center; gap:10px; background:var(--bg-raised); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .item .w{ flex:1; font-size:22px; font-weight:700; word-break:break-word; }
+  .item button{ width:54px; height:44px; font-size:20px; }
+  .yes{ background:var(--accent); color:#0a0a0a; }
+  .no{ background:#1c1c1a; color:var(--fg); border:1px solid var(--line); }
+  .empty{ color:var(--fg-dim); text-align:center; padding:28px 0; font-size:14px; }
+  .bulk{ margin-top:16px; width:100%; padding:12px; background:#1c1c1a; color:var(--fg-dim); border:1px solid var(--line); }
+  .fine{ margin-top:22px; font-size:12px; color:var(--fg-dim); line-height:1.5; }
+</style>
+</head>
+<body>
+  <h1>RAPCOUCH · Moderation</h1>
+  <div class="sub">UNBEKANNTE PUBLIKUMSWÖRTER FREIGEBEN</div>
+
+  <div class="row">
+    <input type="password" id="pin" placeholder="Moderations-PIN" autocomplete="off">
+    <button class="go" id="pinBtn" type="button">OK</button>
+  </div>
+  <div id="status">Bitte PIN eingeben (derselbe wie im Publikum-Fenster der Hauptseite).</div>
+  <div id="list"></div>
+  <button class="bulk" id="rejectAll" type="button" style="display:none;">ALLE ABLEHNEN</button>
+  <div class="fine">Hier siehst nur du die wartenden Wörter. Auf dem Beamer erscheint nichts, was du nicht freigibst. Die Freigabe ist mit der PIN signiert, ohne PIN kann niemand Wörter an der Prüfung vorbeischleusen.</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="audience-config.js"></script>
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const event = audienceEventFromUrl();
+  const base = 'audience/' + event;
+  let pin = '';
+  const pending = new Map(); // id -> {w, t}
+
+  function status(t, cls){ $('status').textContent = t; $('status').className = cls || ''; }
+
+  // Signatur der Freigabe: SHA-256(PIN + ':' + Wort in Kleinbuchstaben) als Hex.
+  // Die Hauptseite prüft sie mit derselben Formel (sigFor in index.html).
+  async function sigFor(p, w){
+    const data = new TextEncoder().encode(p + ':' + w.toLowerCase());
+    const buf = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  let db;
+  try { firebase.initializeApp(FIREBASE_CONFIG); db = firebase.database(); }
+  catch (e){ status('Keine Verbindung zu Firebase.', 'err'); return; }
+  if (!(window.crypto && crypto.subtle)){ status('Dieser Browser/Kontext unterstützt die nötige Verschlüsselung nicht (HTTPS erforderlich).', 'err'); return; }
+
+  function render(){
+    const list = $('list');
+    list.textContent = '';
+    const items = Array.from(pending.entries()).sort((a, b) => (a[1].t || 0) - (b[1].t || 0));
+    $('rejectAll').style.display = items.length ? '' : 'none';
+    if (!items.length){
+      const d = document.createElement('div'); d.className = 'empty'; d.textContent = 'Nichts zu prüfen.'; list.appendChild(d); return;
+    }
+    for (const [id, v] of items){
+      const row = document.createElement('div'); row.className = 'item';
+      const w = document.createElement('div'); w.className = 'w'; w.textContent = v.w;       // textContent: kein HTML aus fremden Eingaben
+      const yes = document.createElement('button'); yes.className = 'yes'; yes.textContent = '✓'; yes.title = 'Freigeben';
+      const no = document.createElement('button'); no.className = 'no'; no.textContent = '✗'; no.title = 'Ablehnen';
+      yes.addEventListener('click', () => approve(id, v));
+      no.addEventListener('click', () => reject(id));
+      row.append(w, yes, no);
+      list.appendChild(row);
+    }
+    status(items.length === 1 ? '1 Wort wartet auf Prüfung.' : items.length + ' Wörter warten auf Prüfung.', 'ok');
+  }
+
+  async function approve(id, v){
+    if (!pin){ status('Bitte zuerst die PIN eingeben.', 'err'); return; }
+    try {
+      const sig = await sigFor(pin, v.w);
+      await db.ref(base + '/approved').push({ w: v.w, sig: sig, t: firebase.database.ServerValue.TIMESTAMP });
+      await db.ref(base + '/suggestions/' + id).remove();
+      pending.delete(id); render();
+    } catch (e){ status('Freigabe fehlgeschlagen (Verbindung/Berechtigung).', 'err'); }
+  }
+  async function reject(id){
+    try { await db.ref(base + '/suggestions/' + id).remove(); } catch (e){}
+    pending.delete(id); render();
+  }
+
+  const sRef = db.ref(base + '/suggestions');
+  sRef.on('child_added', s => {
+    const v = s.val();
+    const w = v && audienceNormalizeWord(v.w);
+    if (!w || (v.t && Date.now() - v.t > AUDIENCE_CONFIG.maxAgeHours * 3600000)) return;
+    pending.set(s.key, { w: w, t: v.t || Date.now() });
+    render();
+  });
+  sRef.on('child_removed', s => { pending.delete(s.key); render(); });
+
+  function setPin(){
+    pin = $('pin').value.trim();
+    try { sessionStorage.setItem('rc-mod-pin', pin); } catch (e){}
+    status(pin ? 'PIN gesetzt. Wartende Wörter erscheinen hier.' : 'Bitte PIN eingeben.', pin ? 'ok' : 'err');
+    render();
+  }
+  $('pinBtn').addEventListener('click', setPin);
+  $('pin').addEventListener('keydown', e => { if (e.key === 'Enter') setPin(); });
+  $('rejectAll').addEventListener('click', () => { Array.from(pending.keys()).forEach(reject); });
+  try { const p = sessionStorage.getItem('rc-mod-pin'); if (p){ $('pin').value = p; pin = p; } } catch (e){}
+  render();
+})();
+</script>
+</body>
+</html>
