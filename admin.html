@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAPCOUCH – Administration</title>
+<style>
+:root{--bg:#0a0a0a;--raised:#121212;--fg:#ededea;--dim:#92928b;--accent:#ff4d1c;--line:#292925}
+*{box-sizing:border-box}body{margin:0;padding:24px 16px 50px;background:var(--bg);color:var(--fg);font-family:Arial,sans-serif;max-width:850px;margin:auto}
+h1{font-size:23px;margin:0 0 5px}.sub{font:11px monospace;letter-spacing:.1em;color:var(--dim);margin-bottom:22px}
+.panel{background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0}
+input,select{width:100%;padding:12px;margin:6px 0 12px;background:#080808;border:1px solid var(--line);border-radius:8px;color:var(--fg);font-size:15px}
+button{padding:12px 15px;border:0;border-radius:8px;background:var(--accent);color:#080808;font-weight:800;cursor:pointer}
+button.secondary{background:#292925;color:var(--fg)}button:disabled{opacity:.5}
+label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
+#loginError,#message{font:12px monospace;line-height:1.5;margin-top:12px;color:var(--accent)}
+#dashboard{display:none}.staffRow{display:grid;grid-template-columns:minmax(120px,1fr) 130px 110px 100px;gap:10px;align-items:center;border-top:1px solid var(--line);padding:12px 0}
+.staffRow input,.staffRow select{margin:0;padding:9px;font-size:13px}.staffRow .meta{min-width:0;overflow-wrap:anywhere;font-size:13px}.staffRow small{display:block;color:var(--dim);font:10px monospace;margin-top:4px}
+@media(max-width:620px){.staffRow{grid-template-columns:1fr 1fr}.staffRow .meta{grid-column:1/-1}}
+.hint{font-size:12px;color:var(--dim);line-height:1.5}.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+</style>
+</head>
+<body>
+<h1>RAPCOUCH · Administration</h1>
+<div class="sub">INTERNE ACCOUNT- UND ROLLENVERWALTUNG</div>
+
+<section id="login" class="panel">
+  <strong>Administrator-Anmeldung</strong>
+  <input id="loginEmail" type="email" autocomplete="username" placeholder="E-Mail-Adresse">
+  <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Passwort">
+  <button id="loginBtn">ANMELDEN</button>
+  <div id="loginError"></div>
+</section>
+
+<main id="dashboard">
+  <div class="panel top">
+    <div><strong id="who"></strong><div class="hint">Angemeldet als AdministratorIn</div></div>
+    <button class="secondary" id="logoutBtn">ABMELDEN</button>
+  </div>
+
+  <section class="panel">
+    <h2 style="font-size:17px;margin-top:0">Neuen Zugang anlegen</h2>
+    <p class="hint">Erstellt einen Firebase-Account und trägt ihn als ModeratorIn oder AdministratorIn ein. Die Person erhält E-Mails zur Passwortvergabe und E-Mail-Bestätigung. Nur AdministratorInnen können diese Seite verwenden.</p>
+    <label for="newName">ANZEIGENAME</label>
+    <input id="newName" maxlength="60" placeholder="Name">
+    <label for="newEmail">E-MAIL-ADRESSE</label>
+    <input id="newEmail" type="email" placeholder="name@example.org">
+    <label for="newRole">ROLLE</label>
+    <select id="newRole"><option value="moderator">ModeratorIn</option><option value="admin">AdministratorIn</option></select>
+    <button id="createBtn">ACCOUNT ANLEGEN</button>
+    <div id="message"></div>
+  </section>
+
+  <section class="panel">
+    <h2 style="font-size:17px;margin-top:0">Bestehende Zugänge</h2>
+    <p class="hint">Rollen und Aktivstatus können geändert werden. Den eigenen Account kann man hier nicht verändern. Deaktivierte Accounts verlieren unmittelbar den Datenbankzugriff. Für eine vollständige Kontosperre zusätzlich den Auth-Account in der Firebase Console deaktivieren oder löschen.</p>
+    <div id="staffList" class="hint">Lade Accounts …</div>
+  </section>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  let db=null, adminUser=null, staffCreator=null;
+  try{firebase.initializeApp(FIREBASE_CONFIG);db=firebase.database();}
+  catch(e){$('loginError').textContent='Firebase konnte nicht initialisiert werden: '+e.message;return;}
+
+  function say(t){$('message').textContent=t;}
+  function randomPassword(){
+    const bytes=new Uint8Array(32);crypto.getRandomValues(bytes);
+    return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('')+'aA1!';
+  }
+  async function isAdmin(user){
+    const s=await db.ref('staff/'+user.uid).once('value');
+    const v=s.val();return v&&v.active===true&&v.role==='admin'?v:null;
+  }
+  async function loadStaff(){
+    const snap=await db.ref('staff').once('value');
+    const all=snap.val()||{};const host=$('staffList');host.textContent='';
+    const entries=Object.entries(all);
+    if(!entries.length){host.textContent='Noch keine Accounts eingetragen.';return;}
+    entries.sort((a,b)=>(a[1].displayName||'').localeCompare(b[1].displayName||'','de'));
+    for(const [uid,v] of entries){
+      const row=document.createElement('div');row.className='staffRow';
+      const meta=document.createElement('div');meta.className='meta';
+      const strong=document.createElement('strong');strong.textContent=v.displayName||'(ohne Namen)';
+      const small=document.createElement('small');small.textContent=(v.email||uid)+' · '+uid;
+      meta.append(strong,small);
+      const role=document.createElement('select');
+      for(const [value,label] of [['moderator','ModeratorIn'],['admin','AdministratorIn']]){
+        const opt=document.createElement('option');opt.value=value;opt.textContent=label;role.appendChild(opt);
+      }
+      role.value=v.role||'moderator';
+      const active=document.createElement('select');
+      for(const [value,label] of [['true','Aktiv'],['false','Deaktiviert']]){
+        const opt=document.createElement('option');opt.value=value;opt.textContent=label;active.appendChild(opt);
+      }
+      active.value=String(v.active===true);
+      const save=document.createElement('button');save.textContent='SPEICHERN';
+      const self=uid===adminUser.uid;
+      if(self){role.disabled=true;active.disabled=true;save.disabled=true;save.textContent='DEIN KONTO';}
+      save.addEventListener('click',async()=>{
+        save.disabled=true;
+        try{
+          await db.ref('staff/'+uid).update({role:role.value,active:active.value==='true'});
+          say('Änderungen für '+(v.displayName||uid)+' gespeichert.');
+          await loadStaff();
+        }catch(e){say('Speichern fehlgeschlagen: '+e.message);save.disabled=false;}
+      });
+      row.append(meta,role,active,save);host.appendChild(row);
+    }
+  }
+
+  $('loginBtn').addEventListener('click',async()=>{
+    $('loginBtn').disabled=true;$('loginError').textContent='';
+    try{await firebase.auth().signInWithEmailAndPassword($('loginEmail').value.trim(),$('loginPassword').value);}
+    catch(e){$('loginError').textContent='Anmeldung fehlgeschlagen: '+e.message;}
+    finally{$('loginBtn').disabled=false;}
+  });
+  $('logoutBtn').addEventListener('click',()=>firebase.auth().signOut());
+
+  $('createBtn').addEventListener('click',async()=>{
+    const name=$('newName').value.trim(),email=$('newEmail').value.trim().toLowerCase(),role=$('newRole').value;
+    if(!name||!email){say('Bitte Anzeigename und E-Mail-Adresse eintragen.');return;}
+    $('createBtn').disabled=true;say('Account wird angelegt …');
+    try{
+      if(!staffCreator) staffCreator=firebase.apps.find(a=>a.name==='rapcouch-staff-creator')||firebase.initializeApp(FIREBASE_CONFIG,'rapcouch-staff-creator');
+      const auth=staffCreator.auth();
+      const cred=await auth.createUserWithEmailAndPassword(email,randomPassword());
+      const newUser=cred.user;
+      await db.ref('staff/'+newUser.uid).set({
+        displayName:name,email:email,role:role,active:true,
+        createdAt:firebase.database.ServerValue.TIMESTAMP
+      });
+      let mailInfo='';
+      try{await newUser.sendEmailVerification();await auth.sendPasswordResetEmail(email);mailInfo=' Bestätigungs- und Passwort-E-Mail wurden versendet.';}
+      catch(mailError){mailInfo=' Account angelegt, aber E-Mail-Versand fehlgeschlagen: '+mailError.message;}
+      await auth.signOut();
+      say('Account '+email+' wurde mit Rolle '+role+' angelegt.'+mailInfo+' UID: '+newUser.uid);
+      $('newName').value='';$('newEmail').value='';await loadStaff();
+    }catch(e){say('Anlegen fehlgeschlagen: '+e.message);}
+    finally{$('createBtn').disabled=false;}
+  });
+
+  firebase.auth().onAuthStateChanged(async user=>{
+    adminUser=null;
+    if(!user){$('login').style.display='';$('dashboard').style.display='none';return;}
+    try{const s=await isAdmin(user);if(!s)throw new Error('Dieser Account ist kein aktiver Administrator.');adminUser=user;
+      $('who').textContent=s.displayName||user.email;$('login').style.display='none';$('dashboard').style.display='block';await loadStaff();
+    }catch(e){$('loginError').textContent=e.message;await firebase.auth().signOut();}
+  });
+})();
+</script>
+</body>
+</html>
