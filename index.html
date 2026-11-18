@@ -1128,12 +1128,12 @@
       </div>
 
       <div class="filterRow">
-        <div class="filterLabel"><span>PRÜFUNG UNBEKANNTER WÖRTER</span></div>
+        <div class="filterLabel"><span>PRÜFUNG DER WÖRTER</span></div>
         <div class="chipRow" id="audModChips">
-          <div class="chip active" data-mod="known">Verwerfen</div>
-          <div class="chip" data-mod="mod">Per Mod-Gerät</div>
+          <div class="chip active" data-mod="mod">Alle per Mod-Gerät</div>
+          <div class="chip" data-mod="known">Ohne Moderation</div>
         </div>
-        <div class="hintSmall">Wörter aus eurer Liste laufen automatisch durch. „Per Mod-Gerät": Unbekannte warten auf einem zweiten Gerät (Handy) auf Freigabe, sie erscheinen nie auf dem Beamer.</div>
+        <div class="hintSmall">„Alle per Mod-Gerät“: Jedes eingereichte Wort wartet auf einem zweiten Gerät (Handy) auf Freigabe und erscheint erst danach auf dem Beamer. „Ohne Moderation“: Wörter aus eurer Liste laufen automatisch durch (außer gesperrte), alle anderen werden verworfen.</div>
         <div id="audModBox" style="display:none;">
           <div class="hintSmall">Die Freigabe erfolgt über den persönlichen Moderator-Login auf dem Mod-Gerät. Eine PIN wird nicht mehr verwendet.</div>
           <div class="hintSmall">Moderationsseite:<br><span id="audModTarget"></span></div>
@@ -3154,7 +3154,7 @@ const aud = {
   open: false,
   queue: [],              // freigegebene Wörter, warten auf Einspielung
   mode: 'priority',       // 'priority' | 'every3'
-  moderation: 'known',    // 'known' (Unbekannte verwerfen) | 'mod' (per Mod-Gerät)
+  moderation: 'mod',      // 'mod' (alle Wörter per Mod-Gerät, Standard) | 'known' (ohne Moderation: bekannte automatisch, Rest verwerfen)
   staffAuthorized: false,
   staffRole: '',
   staffUser: null,
@@ -3195,11 +3195,13 @@ function audLoad(){
     const fresh = d.savedAt && (Date.now() - d.savedAt) < AUDIENCE_CONFIG.maxAgeHours * 3600000;
     if (fresh && Array.isArray(d.queue)) aud.queue = d.queue.filter(x => typeof x === 'string').slice(0, 30);
     if (d.mode === 'every3') aud.mode = 'every3';
-    if (d.moderation === 'mod') aud.moderation = 'mod';
+    // Eigenes Feld "review": Ältere Speicherstände ("moderation") hatten "known" als Standard gespeichert
+    // und werden deshalb bewusst ignoriert – sonst bliebe der neue Standard "alle moderieren" wirkungslos.
+    if (d.review === 'known' || d.review === 'mod') aud.moderation = d.review;
   } catch (e){}
 }
 function audSave(){
-  try { localStorage.setItem('rapcouch-aud', JSON.stringify({ queue: aud.queue, mode: aud.mode, moderation: aud.moderation, savedAt: Date.now() })); } catch (e){}
+  try { localStorage.setItem('rapcouch-aud', JSON.stringify({ queue: aud.queue, mode: aud.mode, review: aud.moderation, savedAt: Date.now() })); } catch (e){}
 }
 
 function audIsDuplicate(w){
@@ -3255,14 +3257,14 @@ function audOnSuggestion(snap){
   const w = audienceNormalizeWord(v.w);
   const tooOld = v.t && (audienceNow() - v.t > AUDIENCE_CONFIG.maxAgeHours * 3600000);
   if (!w || tooOld || audIsDuplicate(w)){ aud.stats.dropped++; remove(); audRender(); return; }
-  // Gesperrte Wörter (audience-config.js) laufen nie automatisch durch – auch nicht, wenn sie in
-  // der eigenen Wortliste stehen. Mit Mod-Gerät entscheidet dort ein Mensch, sonst wird verworfen.
-  const blocked = audienceIsBlocked(w);
+  // "Alle per Mod-Gerät": JEDES Wort bleibt in der Datenbank, bis jemand auf der Moderationsseite
+  // entscheidet – auch Wörter aus der eigenen Liste.
+  if (aud.moderation === 'mod'){ audRender(); return; }
+  // "Ohne Moderation": bekannte Wörter laufen automatisch durch, außer sie stehen auf der
+  // Sperrliste (audience-config.js). Alles andere wird verworfen.
   const canon = audKnown().get(w.toLowerCase());
-  if (canon && !blocked){ aud.stats.auto++; remove(); audEnqueue(canon); return; }
-  if (aud.moderation === 'known'){ aud.stats.dropped++; remove(); audRender(); return; }
-  // moderation === 'mod': bleibt in der Datenbank, bis das Mod-Gerät entscheidet.
-  audRender();
+  if (canon && !audienceIsBlocked(w)){ aud.stats.auto++; remove(); audEnqueue(canon); return; }
+  aud.stats.dropped++; remove(); audRender();
 }
 
 function audOnApproved(snap){
