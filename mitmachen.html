@@ -218,10 +218,16 @@
         r = await postSuggestion(w, tok);
       }
       if (r.status === 401 || r.status === 403){
+        const detail = await r.json().then(j => (j && j.error) || '').catch(() => '');
         const stillOpen = await checkOpen();
-        msg(stillOpen
-          ? 'Nicht angenommen – zwischen zwei Wörtern müssen mindestens 20 Sekunden liegen. Versuch es gleich nochmal.'
-          : 'Gerade werden keine Wörter angenommen.', 'err');
+        // Die Datenbank sagt nur "Permission denied", nicht warum. Die Wartezeit ist nur dann der
+        // wahrscheinliche Grund, wenn dieses Handy vor weniger als 20 Sekunden erfolgreich eingereicht
+        // hat (der Browser lässt das normalerweise gar nicht erst zu). Sonst ist es ein Einrichtungsfehler.
+        const subsNow = recentSubmits();
+        const lastOk = subsNow.length ? Math.max.apply(null, subsNow) : 0;
+        if (!stillOpen) msg('Gerade werden keine Wörter angenommen.', 'err');
+        else if (Date.now() - lastOk < COOLDOWN_MS) msg('Nicht angenommen – zwischen zwei Wörtern müssen mindestens 20 Sekunden liegen. Versuch es gleich nochmal.', 'err');
+        else msg('Die Datenbank lehnt die Einreichung ab (HTTP ' + r.status + (detail ? ': ' + detail : '') + '). Bitte der Moderation Bescheid geben – vermutlich sind die Datenbankregeln nicht auf dem neuesten Stand.', 'err');
         return;
       }
       if (!r.ok) throw new Error('HTTP ' + r.status);
