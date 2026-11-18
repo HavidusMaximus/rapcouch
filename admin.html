@@ -17,6 +17,10 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
 #dashboard{display:none}.staffRow{display:grid;grid-template-columns:minmax(120px,1fr) 130px 110px 100px;gap:10px;align-items:center;border-top:1px solid var(--line);padding:12px 0}
 .staffRow input,.staffRow select{margin:0;padding:9px;font-size:13px}.staffRow .meta{min-width:0;overflow-wrap:anywhere;font-size:13px}.staffRow small{display:block;color:var(--dim);font:10px monospace;margin-top:4px}
 @media(max-width:620px){.staffRow{grid-template-columns:1fr 1fr}.staffRow .meta{grid-column:1/-1}}
+.actions{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}.actions button{padding:8px 12px;font-size:12px}
+.regRow{display:grid;grid-template-columns:minmax(120px,1fr) 140px;gap:10px;align-items:center;border-top:1px solid var(--line);padding:12px 0}
+.regRow .meta{min-width:0;overflow-wrap:anywhere;font-size:13px}.regRow small{display:block;color:var(--dim);font:10px monospace;margin-top:4px}
+.regRow select{margin:0;padding:9px;font-size:13px}.danger{background:#5a1f12;color:#ffd9d0}
 .hint{font-size:12px;color:var(--dim);line-height:1.5}.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
 </style>
 </head>
@@ -29,6 +33,7 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
   <input id="loginEmail" type="email" autocomplete="username" placeholder="E-Mail-Adresse">
   <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Passwort">
   <button id="loginBtn">ANMELDEN</button>
+  <button id="forgotBtn" class="secondary" type="button" style="margin-left:8px">PASSWORT VERGESSEN?</button>
   <div id="loginError"></div>
 </section>
 
@@ -37,6 +42,12 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
     <div><strong id="who"></strong><div class="hint">Angemeldet als AdministratorIn</div></div>
     <button class="secondary" id="logoutBtn">ABMELDEN</button>
   </div>
+
+  <section class="panel">
+    <h2 style="font-size:17px;margin-top:0">Offene Anfragen <span id="regCount" class="hint"></span></h2>
+    <p class="hint">Personen, die sich über die Registrierungsseite angemeldet haben. Mit „Freigeben“ erhalten sie die gewählte Rolle und können sich sofort auf der Moderationsseite anmelden. „Ablehnen“ löscht nur die Anfrage; das Login-Konto bleibt bestehen und kann bei Bedarf in der Firebase Console (Authentication) gelöscht werden.</p>
+    <div id="regList" class="hint">Lade Anfragen …</div>
+  </section>
 
   <section class="panel">
     <h2 style="font-size:17px;margin-top:0">Neuen Zugang anlegen</h2>
@@ -81,6 +92,57 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
     const s=await db.ref('staff/'+user.uid).once('value');
     const v=s.val();return v&&v.active===true&&v.role==='admin'?v:null;
   }
+  // Zwei Tipps nötig (Schutz vor Versehen): erster Tipp fragt nach, zweiter führt aus.
+  function twoTap(btn,label,action){
+    let armed=false,t=null;
+    btn.addEventListener('click',()=>{
+      if(!armed){armed=true;btn.textContent='SICHER? NOCHMAL TIPPEN';t=setTimeout(()=>{armed=false;btn.textContent=label;},3000);return;}
+      clearTimeout(t);armed=false;btn.textContent=label;action();
+    });
+  }
+  async function loadRegs(){
+    const host=$('regList');
+    let all;
+    try{all=(await db.ref('registrations').once('value')).val()||{};}
+    catch(e){host.textContent='Anfragen konnten nicht geladen werden ('+e.message+'). Sind die neuen Datenbankregeln veröffentlicht?';$('regCount').textContent='';return;}
+    host.textContent='';
+    const entries=Object.entries(all).sort((a,b)=>(a[1].createdAt||0)-(b[1].createdAt||0));
+    $('regCount').textContent=entries.length?'('+entries.length+')':'';
+    if(!entries.length){host.textContent='Keine offenen Anfragen.';return;}
+    for(const [uid,v] of entries){
+      const row=document.createElement('div');row.className='regRow';
+      const meta=document.createElement('div');meta.className='meta';
+      const strong=document.createElement('strong');strong.textContent=v.displayName||'(ohne Namen)';
+      const small=document.createElement('small');
+      small.textContent=(v.email||uid)+(v.createdAt?' · '+new Date(v.createdAt).toLocaleString('de-DE'):'');
+      meta.append(strong,small);
+      const role=document.createElement('select');
+      for(const [value,label] of [['moderator','ModeratorIn'],['admin','AdministratorIn']]){
+        const opt=document.createElement('option');opt.value=value;opt.textContent=label;role.appendChild(opt);
+      }
+      const actions=document.createElement('div');actions.className='actions';
+      const ok=document.createElement('button');ok.textContent='FREIGEBEN';
+      ok.addEventListener('click',async()=>{
+        ok.disabled=true;
+        try{
+          const existing=(await db.ref('staff/'+uid).once('value')).exists();
+          if(!existing){
+            await db.ref('staff/'+uid).set({displayName:v.displayName,email:v.email,role:role.value,active:true,createdAt:firebase.database.ServerValue.TIMESTAMP});
+          }
+          await db.ref('registrations/'+uid).remove();
+          say((existing?'Es gab schon einen Zugang für ':'Freigegeben: ')+(v.displayName||v.email)+(existing?'; Anfrage entfernt.':' als '+role.value+'.'));
+          await loadStaff();await loadRegs();
+        }catch(e){say('Freigabe fehlgeschlagen: '+e.message);ok.disabled=false;}
+      });
+      const no=document.createElement('button');no.className='danger';no.textContent='ABLEHNEN';
+      twoTap(no,'ABLEHNEN',async()=>{
+        try{await db.ref('registrations/'+uid).remove();say('Anfrage von '+(v.displayName||v.email)+' abgelehnt.');await loadRegs();}
+        catch(e){say('Ablehnen fehlgeschlagen: '+e.message);}
+      });
+      actions.append(ok,no);
+      row.append(meta,role,actions);host.appendChild(row);
+    }
+  }
   async function loadStaff(){
     const snap=await db.ref('staff').once('value');
     const all=snap.val()||{};const host=$('staffList');host.textContent='';
@@ -114,7 +176,23 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
           await loadStaff();
         }catch(e){say('Speichern fehlgeschlagen: '+e.message);save.disabled=false;}
       });
-      row.append(meta,role,active,save);host.appendChild(row);
+      const actions=document.createElement('div');actions.className='actions';
+      const mail=document.createElement('button');mail.className='secondary';mail.textContent='PASSWORT-MAIL SENDEN';
+      mail.disabled=!v.email;
+      mail.addEventListener('click',async()=>{
+        mail.disabled=true;
+        try{await firebase.auth().sendPasswordResetEmail(v.email);say('E-Mail zum Zurücksetzen des Passworts an '+v.email+' gesendet.');}
+        catch(e){say('Versand fehlgeschlagen: '+e.message);}
+        finally{mail.disabled=false;}
+      });
+      const del=document.createElement('button');del.className='danger';del.textContent='ZUGANG ENTFERNEN';
+      if(self) del.disabled=true;
+      twoTap(del,'ZUGANG ENTFERNEN',async()=>{
+        try{await db.ref('staff/'+uid).remove();say('Zugang von '+(v.displayName||uid)+' entfernt (Login-Konto bleibt bestehen, hat aber keine Rechte mehr).');await loadStaff();}
+        catch(e){say('Entfernen fehlgeschlagen: '+e.message);}
+      });
+      actions.append(mail,del);
+      row.append(meta,role,active,save,actions);host.appendChild(row);
     }
   }
 
@@ -125,6 +203,16 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
     finally{$('loginBtn').disabled=false;}
   });
   $('logoutBtn').addEventListener('click',()=>firebase.auth().signOut());
+  $('forgotBtn').addEventListener('click',async()=>{
+    const email=$('loginEmail').value.trim();
+    if(!email){$('loginError').textContent='Bitte zuerst die E-Mail-Adresse eintragen.';return;}
+    try{firebase.auth().languageCode='de';await firebase.auth().sendPasswordResetEmail(email);}
+    catch(e){
+      if(e.code==='auth/invalid-email'){$('loginError').textContent='Das ist keine gültige E-Mail-Adresse.';return;}
+      if(e.code!=='auth/user-not-found'){$('loginError').textContent='Versand fehlgeschlagen: '+e.message;return;}
+    }
+    $('loginError').textContent='Falls ein Konto zu dieser Adresse existiert, wurde eine E-Mail zum Zurücksetzen verschickt (auch den Spam-Ordner prüfen).';
+  });
 
   $('createBtn').addEventListener('click',async()=>{
     const name=$('newName').value.trim(),email=$('newEmail').value.trim().toLowerCase(),role=$('newRole').value;
@@ -173,7 +261,7 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
     adminUser=null;
     if(!user){$('login').style.display='';$('dashboard').style.display='none';return;}
     try{const s=await isAdmin(user);if(!s)throw new Error('Dieser Account ist kein aktiver Administrator.');adminUser=user;
-      $('who').textContent=s.displayName||user.email;$('login').style.display='none';$('dashboard').style.display='block';await loadStaff();
+      $('who').textContent=s.displayName||user.email;$('login').style.display='none';$('dashboard').style.display='block';await loadStaff();await loadRegs();
     }catch(e){$('loginError').textContent=e.message;await firebase.auth().signOut();}
   });
 })();

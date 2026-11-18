@@ -1023,6 +1023,20 @@
       Multiplayer ist auf dieser Seite noch nicht eingerichtet (fehlende Firebase-Konfiguration).
     </div>
 
+    <div id="mpAuthBox" class="filterRow" style="display:none;">
+      <div class="filterLabel"><span>ANMELDUNG</span></div>
+      <div class="hintSmall" id="mpAuthHint">Für Multiplayer bitte mit einem Konto mit bestätigter E-Mail-Adresse anmelden.</div>
+      <input type="email" class="audInput" id="mpLoginEmail" placeholder="E-Mail-Adresse" autocomplete="username">
+      <input type="password" class="audInput" id="mpLoginPassword" placeholder="Passwort" autocomplete="current-password">
+      <div class="spBtn" id="mpLoginBtn" style="margin-top:8px;">ANMELDEN</div>
+      <div class="hintSmall" id="mpLoginMessage"></div>
+      <div class="hintSmall"><a href="#" id="mpForgot" style="color:inherit">Passwort vergessen?</a> · <a href="register.html" target="_blank" rel="noopener" style="color:inherit">Konto erstellen / E-Mail bestätigen</a></div>
+    </div>
+    <div id="mpUserBar" class="filterRow" style="display:none;justify-content:space-between;align-items:center;">
+      <span class="hintSmall" id="mpIdentity"></span>
+      <div class="spBtnSecondaryLike" id="mpLogoutBtn">Abmelden</div>
+    </div>
+
     <div id="mpBody">
       <div id="mpStatus">Nicht verbunden – volle lokale Kontrolle.</div>
 
@@ -1070,6 +1084,7 @@
       <input type="password" class="audInput" id="audLoginPassword" placeholder="Passwort" autocomplete="current-password">
       <div class="spBtn" id="audLoginBtn" style="margin-top:8px;">ANMELDEN</div>
       <div class="hintSmall" id="audLoginMessage"></div>
+      <div class="hintSmall"><a href="#" id="audForgot" style="color:inherit">Passwort vergessen?</a> · <a href="register.html" target="_blank" rel="noopener" style="color:inherit">Konto anfragen</a></div>
     </div>
     <div id="audBody" style="display:none;">
       <div class="filterRow" style="display:flex;justify-content:space-between;align-items:center;">
@@ -2507,6 +2522,26 @@ el.themaSourceChips.forEach(chip => {
 // Wort gerade dran ist -> immun gegen Verzögerung, funktioniert auch für
 // später beitretende Geräte sofort korrekt.
 
+// Anmeldestand für Multiplayer: Konto mit bestätigter E-Mail ODER aktives Moderations-/Admin-Konto
+// (entspricht den Datenbankregeln für sessions/…).
+const mpAuth = {
+  user: null, verified: false, staff: false,
+  get ok(){ return !!this.user && (this.verified || this.staff); },
+};
+function mpRender(){
+  if (!(state.mp.available && typeof firebase !== 'undefined')) return;
+  const ok = mpAuth.ok;
+  el.mpBody.style.display = ok ? '' : 'none';
+  document.getElementById('mpAuthBox').style.display = ok ? 'none' : '';
+  const bar = document.getElementById('mpUserBar');
+  bar.style.display = mpAuth.user ? 'flex' : 'none';
+  document.getElementById('mpIdentity').textContent = mpAuth.user
+    ? (mpAuth.user.displayName || mpAuth.user.email) + (ok ? '' : ' · E-Mail nicht bestätigt') : '';
+  document.getElementById('mpAuthHint').textContent = (mpAuth.user && !ok)
+    ? 'Deine E-Mail-Adresse ist noch nicht bestätigt. Bitte den Link in der Bestätigungsmail anklicken und danach erneut anmelden (oder auf der Konto-Seite „Prüfen“ tippen).'
+    : 'Für Multiplayer bitte mit einem Konto mit bestätigter E-Mail-Adresse anmelden.';
+}
+
 function mulberry32(seed){
   let a = seed >>> 0;
   return function(){
@@ -2622,6 +2657,7 @@ function detachSession(){
 
 function joinSession(sessionId){
   if (!state.mp.available) return;
+  if (!mpAuth.ok){ mpRender(); openMpPanel(); return; } // ohne Anmeldung keine Session
   detachSession();
   state.mp.sessionId = sessionId;
   state.mp.seed = state.mp.seed || generateSeed(); // Fallback, falls noch niemand die Session gestartet hat
@@ -2690,7 +2726,7 @@ function initMultiplayer(){
     firebase.initializeApp(cfg);
     state.mp.available = true;
     el.mpUnavailable.style.display = 'none';
-    el.mpBody.style.display = '';
+    mpRender();   // zeigt die Anmeldung, bis ein berechtigtes Konto angemeldet ist
     // Kein Auto-Beitritt: Solo-Nutzer bleiben unberührt, bis sie sich
     // bewusst für Multiplayer entscheiden.
   } catch (e){
@@ -3021,6 +3057,21 @@ function audInit(){
     try { await firebase.auth().signInWithEmailAndPassword($aud('audLoginEmail').value.trim(), $aud('audLoginPassword').value); }
     catch (e) { $aud('audLoginMessage').textContent = 'Anmeldung fehlgeschlagen: ' + (e.message || e); }
   });
+  $aud('audForgot').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const email = $aud('audLoginEmail').value.trim();
+    const msg = $aud('audLoginMessage');
+    if (!email){ msg.textContent = 'Bitte oben zuerst die E-Mail-Adresse eintragen.'; return; }
+    if (!(state.mp.available && typeof firebase !== 'undefined')){ msg.textContent = 'Keine Verbindung zu Firebase.'; return; }
+    try {
+      firebase.auth().languageCode = 'de';
+      await firebase.auth().sendPasswordResetEmail(email);
+    } catch (err) {
+      if (err.code === 'auth/invalid-email'){ msg.textContent = 'Das ist keine gültige E-Mail-Adresse.'; return; }
+      if (err.code !== 'auth/user-not-found'){ msg.textContent = 'Versand fehlgeschlagen: ' + (err.message || err); return; }
+    }
+    msg.textContent = 'Falls ein Konto zu dieser Adresse existiert, wurde eine E-Mail zum Zurücksetzen verschickt (auch den Spam-Ordner prüfen).';
+  });
   $aud('audLogoutBtn').addEventListener('click', async () => {
     audStopKeepOpen();
     if (aud.staffAuthorized && aud.open) {
@@ -3033,23 +3084,62 @@ function audInit(){
   if (state.mp.available && typeof firebase !== 'undefined') firebase.auth().onAuthStateChanged(async user => {
     audStopKeepOpen();
     aud.staffAuthorized = false; aud.staffRole = ''; aud.staffUser = null;
+    mpAuth.user = user; mpAuth.verified = false; mpAuth.staff = false;
+    $aud('audLoginMessage').textContent = '';
     if (user) {
+      // Hat die Person ihre E-Mail inzwischen bestätigt? Dann Status und Token (für die Regeln) erneuern.
+      try {
+        if (!user.emailVerified){ await user.reload(); if (user.emailVerified) await user.getIdToken(true); }
+      } catch (e){}
+      mpAuth.verified = !!user.emailVerified;
       try {
         const snap = await firebase.database().ref('staff/' + user.uid).once('value');
         const person = snap.val();
         if (person && person.active === true && ['moderator','admin'].includes(person.role)) {
           aud.staffAuthorized = true; aud.staffRole = person.role; aud.staffUser = user;
+          mpAuth.staff = true;
           $aud('audIdentity').textContent = (person.displayName || user.email) + ' · ' + person.role;
           aud.open = (await firebase.database().ref(audBase() + '/open').once('value')).val() === true;
         } else {
-          $aud('audLoginMessage').textContent = 'Dieser Account hat keine aktive Moderationsberechtigung.';
-          await firebase.auth().signOut();
+          // Kein Moderationszugang – angemeldet bleibt die Person trotzdem (für Multiplayer).
+          $aud('audLoginMessage').textContent = 'Angemeldet als ' + (user.displayName || user.email) + ' – dieses Konto hat keine Moderationsberechtigung.';
         }
       } catch (e) { $aud('audLoginMessage').textContent = 'Berechtigung konnte nicht geprüft werden: ' + e.message; }
     }
+    if (!mpAuth.ok && state.mp.active) leaveSession();   // Abmeldung beendet die Session
     if (aud.staffAuthorized && aud.open){ audAttach(firebase.database()); audKeepOpenAlive(firebase.database()); }
     else audDetach();
+    mpRender();
     audRender();
+  });
+  // Anmeldung/Abmeldung im Multiplayer-Fenster
+  $aud('mpLoginBtn').addEventListener('click', async () => {
+    const msg = $aud('mpLoginMessage'); msg.textContent = '';
+    try {
+      const cred = await firebase.auth().signInWithEmailAndPassword($aud('mpLoginEmail').value.trim(), $aud('mpLoginPassword').value);
+      $aud('mpLoginPassword').value = '';
+      if (!cred.user.emailVerified) msg.textContent = 'Angemeldet, aber die E-Mail-Adresse ist noch nicht bestätigt.';
+    } catch (e) { msg.textContent = 'Anmeldung fehlgeschlagen: ' + (e.message || e); }
+  });
+  $aud('mpLogoutBtn').addEventListener('click', async () => {
+    if (aud.staffAuthorized && aud.open) {
+      audStopKeepOpen();
+      try { await firebase.database().ref(audBase() + '/open').set(false); } catch (e) {}
+      aud.open = false;
+    }
+    await firebase.auth().signOut();
+  });
+  $aud('mpForgot').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const email = $aud('mpLoginEmail').value.trim();
+    const msg = $aud('mpLoginMessage');
+    if (!email){ msg.textContent = 'Bitte oben zuerst die E-Mail-Adresse eintragen.'; return; }
+    try { firebase.auth().languageCode = 'de'; await firebase.auth().sendPasswordResetEmail(email); }
+    catch (err) {
+      if (err.code === 'auth/invalid-email'){ msg.textContent = 'Das ist keine gültige E-Mail-Adresse.'; return; }
+      if (err.code !== 'auth/user-not-found'){ msg.textContent = 'Versand fehlgeschlagen: ' + (err.message || err); return; }
+    }
+    msg.textContent = 'Falls ein Konto zu dieser Adresse existiert, wurde eine E-Mail zum Zurücksetzen verschickt (auch den Spam-Ordner prüfen).';
   });
   $aud('audClearQueue').addEventListener('click', () => { aud.queue = []; audSave(); audRender(); });
   document.querySelectorAll('#audModeChips .chip').forEach(c => c.addEventListener('click', () => { aud.mode = c.dataset.m; audSave(); audRender(); }));

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RAPCOUCH – Konto</title>
+<style>
+  :root{--bg:#0a0a0a;--raised:#121212;--fg:#ededea;--dim:#858580;--accent:#ff4d1c;--line:#292925}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;min-height:100%;background:var(--bg);color:var(--fg);font-family:Arial,sans-serif}
+  body{padding:22px 16px 40px;max-width:480px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:.04em}
+  h2{font-size:15px;margin:0 0 6px}
+  .sub{font:11px monospace;letter-spacing:.08em;color:var(--dim);margin-bottom:18px}
+  .panel{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:14px;margin:14px 0}
+  label{display:block;font:11px monospace;letter-spacing:.1em;color:var(--dim);margin-top:10px}
+  input{width:100%;font-size:16px;padding:12px;border-radius:8px;background:#090909;border:1px solid var(--line);color:var(--fg);margin:5px 0 4px}
+  button{border:0;border-radius:8px;font-weight:800;letter-spacing:.04em;cursor:pointer;font-size:14px;padding:12px;width:100%;margin-top:12px}
+  .go{background:var(--accent);color:#090909}
+  .muted{background:#242420;color:var(--fg)}
+  button:disabled{opacity:.5;cursor:default}
+  #msg{margin-top:14px;font:12px monospace;line-height:1.5;color:var(--dim)}
+  #msg.err{color:#ff8a70}#msg.ok{color:var(--accent)}
+  .fine{margin-top:18px;font-size:12px;color:var(--dim);line-height:1.5}
+  .state{font-size:14px;line-height:1.5;margin:6px 0}
+  .good{color:var(--accent)}.bad{color:#ff8a70}
+  a{color:var(--fg)}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+  <h1>RAPCOUCH · Konto</h1>
+  <div class="sub">FÜR MULTIPLAYER UND MODERATION</div>
+
+  <div id="msg" role="status" aria-live="polite"></div>
+
+  <!-- Nicht angemeldet -->
+  <div id="guest">
+    <section class="panel">
+      <h2>Neues Konto erstellen</h2>
+      <label for="name">ANZEIGENAME</label>
+      <input id="name" maxlength="60" autocomplete="name" placeholder="Dein Name">
+      <label for="email">E-MAIL-ADRESSE</label>
+      <input id="email" type="email" autocomplete="username" placeholder="name@example.org">
+      <label for="pw">PASSWORT (MIND. 8 ZEICHEN)</label>
+      <input id="pw" type="password" autocomplete="new-password">
+      <label for="pw2">PASSWORT WIEDERHOLEN</label>
+      <input id="pw2" type="password" autocomplete="new-password">
+      <button class="go" id="createBtn" type="button">KONTO ERSTELLEN</button>
+    </section>
+
+    <section class="panel">
+      <h2>Schon ein Konto? Anmelden</h2>
+      <label for="lemail">E-MAIL-ADRESSE</label>
+      <input id="lemail" type="email" autocomplete="username" placeholder="name@example.org">
+      <label for="lpw">PASSWORT</label>
+      <input id="lpw" type="password" autocomplete="current-password">
+      <button class="go" id="loginBtn" type="button">ANMELDEN</button>
+      <button class="muted" id="forgotBtn" type="button">PASSWORT VERGESSEN?</button>
+    </section>
+  </div>
+
+  <!-- Angemeldet -->
+  <div id="account" hidden>
+    <section class="panel">
+      <h2 id="who"></h2>
+      <div class="state" id="verState"></div>
+      <div id="verButtons" hidden>
+        <button class="go" id="checkBtn" type="button">ICH HABE BESTÄTIGT – PRÜFEN</button>
+        <button class="muted" id="resendBtn" type="button">BESTÄTIGUNGSMAIL ERNEUT SENDEN</button>
+      </div>
+    </section>
+
+    <section class="panel" id="modBox" hidden>
+      <h2>Moderationszugang</h2>
+      <div class="state" id="modState"></div>
+      <div id="modRequest" hidden>
+        <label for="reqName">ANZEIGENAME FÜR DIE ANFRAGE</label>
+        <input id="reqName" maxlength="60" placeholder="Dein Name">
+        <button class="go" id="reqBtn" type="button">MODERATIONSZUGANG ANFRAGEN</button>
+      </div>
+    </section>
+
+    <button class="muted" id="logoutBtn" type="button">ABMELDEN</button>
+  </div>
+
+  <div class="fine">
+    Mit einem Konto mit <strong>bestätigter E-Mail-Adresse</strong> kannst du im Tool bei Multiplayer-Sessions mitmachen (dort mit denselben Daten anmelden).
+    Moderation (Publikumswörter freigeben) gibt es nur nach Freigabe durch einen Admin – eine automatische Benachrichtigung gibt es nicht, probiere es später auf der <a href="moderieren.html">Moderationsseite</a>.
+  </div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const say = (t, cls) => { $('msg').textContent = t || ''; $('msg').className = cls || ''; };
+  let auth, db;
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    auth = firebase.auth(); auth.languageCode = 'de';
+    db = firebase.database();
+  } catch (e){
+    say('Firebase konnte nicht geladen werden. Bitte später erneut versuchen.', 'err');
+    document.querySelectorAll('button').forEach(b => b.disabled = true);
+    return;
+  }
+
+  const errText = (e) => {
+    switch (e && e.code){
+      case 'auth/invalid-email': return 'Das ist keine gültige E-Mail-Adresse.';
+      case 'auth/weak-password': return 'Das Passwort ist zu schwach.';
+      case 'auth/email-already-in-use': return 'Zu dieser Adresse gibt es schon ein Konto. Bitte unten anmelden (oder „Passwort vergessen?“).';
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found': return 'E-Mail-Adresse oder Passwort stimmt nicht.';
+      case 'auth/too-many-requests': return 'Zu viele Versuche. Bitte kurz warten und dann erneut probieren.';
+      default: return (e && e.message) || String(e);
+    }
+  };
+
+  // Holt den aktuellen Bestätigungsstand und erneuert das Token (die Datenbankregeln lesen email_verified aus dem Token).
+  async function refreshVerified(user){
+    await user.reload();
+    if (user.emailVerified) await user.getIdToken(true);
+    return user.emailVerified;
+  }
+
+  async function render(user){
+    $('guest').hidden = !!user;
+    $('account').hidden = !user;
+    if (!user) return;
+    $('who').textContent = (user.displayName || user.email) + ' · ' + user.email;
+    const ok = user.emailVerified;
+    $('verState').innerHTML = '';
+    const s = document.createElement('span');
+    s.className = ok ? 'good' : 'bad';
+    s.textContent = ok ? 'E-Mail-Adresse bestätigt ✓ – Multiplayer im Tool ist freigeschaltet.'
+                       : 'E-Mail-Adresse noch nicht bestätigt. Bitte den Link in der Bestätigungsmail anklicken (auch im Spam-Ordner nachsehen) und dann unten auf „Prüfen“ tippen.';
+    $('verState').appendChild(s);
+    $('verButtons').hidden = ok;
+    $('modBox').hidden = !ok;
+    if (!ok) return;
+
+    try {
+      const staff = (await db.ref('staff/' + user.uid).once('value')).val();
+      const reg = (await db.ref('registrations/' + user.uid).once('value')).exists();
+      $('modRequest').hidden = true;
+      if (staff && staff.active === true) $('modState').textContent = 'Du hast Moderationszugang (' + staff.role + ').';
+      else if (staff) $('modState').textContent = 'Dein Zugang ist deaktiviert. Bitte wende dich an die Administration.';
+      else if (reg) $('modState').textContent = 'Deine Anfrage liegt vor und wartet auf die Freischaltung durch einen Admin.';
+      else {
+        $('modState').textContent = 'Du hast noch keinen Moderationszugang. Wenn du Publikumswörter freigeben möchtest, kannst du ihn anfragen.';
+        $('reqName').value = user.displayName || '';
+        $('modRequest').hidden = false;
+      }
+    } catch (e){
+      $('modState').textContent = 'Status konnte nicht geladen werden: ' + errText(e);
+    }
+  }
+
+  auth.onAuthStateChanged(user => { render(user); });
+
+  $('createBtn').addEventListener('click', async () => {
+    const name = $('name').value.trim(), email = $('email').value.trim().toLowerCase();
+    const pw = $('pw').value, pw2 = $('pw2').value;
+    if (name.length < 2){ say('Bitte einen Anzeigenamen eintragen (mindestens 2 Zeichen).', 'err'); return; }
+    if (!email){ say('Bitte eine E-Mail-Adresse eintragen.', 'err'); return; }
+    if (pw.length < 8){ say('Das Passwort braucht mindestens 8 Zeichen.', 'err'); return; }
+    if (pw !== pw2){ say('Die beiden Passwörter stimmen nicht überein.', 'err'); return; }
+    $('createBtn').disabled = true; say('Einen Moment …');
+    try {
+      const user = (await auth.createUserWithEmailAndPassword(email, pw)).user;
+      try { await user.updateProfile({ displayName: name }); } catch (e){}
+      let mailOk = true;
+      try { await user.sendEmailVerification(); } catch (e){ mailOk = false; }
+      say(mailOk ? 'Konto erstellt. Wir haben dir eine Bestätigungsmail an ' + email + ' geschickt. Bitte den Link anklicken, danach hier auf „Prüfen“ tippen.'
+                 : 'Konto erstellt, aber die Bestätigungsmail konnte nicht gesendet werden. Bitte unten „Bestätigungsmail erneut senden“ nutzen.', mailOk ? 'ok' : 'err');
+      render(auth.currentUser);
+    } catch (e){ say(errText(e), 'err'); }
+    finally { $('createBtn').disabled = false; }
+  });
+
+  $('loginBtn').addEventListener('click', async () => {
+    const email = $('lemail').value.trim(), pw = $('lpw').value;
+    if (!email || !pw){ say('Bitte E-Mail-Adresse und Passwort eintragen.', 'err'); return; }
+    $('loginBtn').disabled = true; say('');
+    try {
+      const user = (await auth.signInWithEmailAndPassword(email, pw)).user;
+      if (!user.emailVerified){ try { await refreshVerified(user); } catch (e){} }
+      render(auth.currentUser);
+    } catch (e){ say(errText(e), 'err'); }
+    finally { $('loginBtn').disabled = false; }
+  });
+
+  $('forgotBtn').addEventListener('click', async () => {
+    const email = ($('lemail').value || $('email').value).trim();
+    if (!email){ say('Bitte zuerst die E-Mail-Adresse eintragen.', 'err'); return; }
+    try { await auth.sendPasswordResetEmail(email); }
+    catch (e){
+      if (e.code === 'auth/invalid-email'){ say('Das ist keine gültige E-Mail-Adresse.', 'err'); return; }
+      if (e.code !== 'auth/user-not-found'){ say('Versand fehlgeschlagen: ' + errText(e), 'err'); return; }
+    }
+    say('Falls ein Konto zu dieser Adresse existiert, wurde eine E-Mail zum Zurücksetzen verschickt (auch den Spam-Ordner prüfen).', 'ok');
+  });
+
+  $('checkBtn').addEventListener('click', async () => {
+    const user = auth.currentUser; if (!user) return;
+    $('checkBtn').disabled = true;
+    try {
+      const ok = await refreshVerified(user);
+      say(ok ? 'Bestätigt – alles freigeschaltet.' : 'Noch nicht bestätigt. Bitte erst den Link in der Mail anklicken.', ok ? 'ok' : 'err');
+      render(auth.currentUser);
+    } catch (e){ say(errText(e), 'err'); }
+    finally { $('checkBtn').disabled = false; }
+  });
+
+  $('resendBtn').addEventListener('click', async () => {
+    const user = auth.currentUser; if (!user) return;
+    $('resendBtn').disabled = true;
+    try { await user.sendEmailVerification(); say('Bestätigungsmail wurde erneut gesendet.', 'ok'); }
+    catch (e){ say(errText(e), 'err'); }
+    finally { setTimeout(() => { $('resendBtn').disabled = false; }, 5000); }
+  });
+
+  $('reqBtn').addEventListener('click', async () => {
+    const user = auth.currentUser; if (!user) return;
+    const name = $('reqName').value.trim();
+    if (name.length < 2){ say('Bitte einen Anzeigenamen eintragen (mindestens 2 Zeichen).', 'err'); return; }
+    $('reqBtn').disabled = true;
+    try {
+      await user.getIdToken(true); // aktuelles Token, damit "E-Mail bestätigt" in den Regeln ankommt
+      await db.ref('registrations/' + user.uid).set({
+        email: user.email, displayName: name, createdAt: firebase.database.ServerValue.TIMESTAMP
+      });
+      say('Anfrage gesendet. Ein Admin prüft sie und schaltet dich frei.', 'ok');
+      render(auth.currentUser);
+    } catch (e){ say('Anfrage fehlgeschlagen: ' + errText(e), 'err'); }
+    finally { $('reqBtn').disabled = false; }
+  });
+
+  $('logoutBtn').addEventListener('click', async () => { say(''); await auth.signOut(); });
+})();
+</script>
+</body>
+</html>
