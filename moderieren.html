@@ -37,6 +37,10 @@
     <input id="email" type="email" autocomplete="username" placeholder="E-Mail-Adresse">
     <input id="password" type="password" autocomplete="current-password" placeholder="Passwort">
     <button class="go" id="loginBtn" type="button">ANMELDEN</button>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="muted" id="forgotBtn" type="button" style="flex:1">PASSWORT VERGESSEN?</button>
+      <a href="register.html" style="flex:1;text-decoration:none"><button class="muted" type="button" style="width:100%">KONTO ANFRAGEN</button></a>
+    </div>
   </section>
 
   <div id="app">
@@ -191,6 +195,18 @@
   function statusLogin(t){let el=$('loginError');if(!el){el=document.createElement('div');el.id='loginError';el.style.cssText='color:#ff8a70;font:12px monospace;margin-top:10px';$('login').appendChild(el);}el.textContent=t;}
 
   $('logoutBtn').addEventListener('click',()=>firebase.auth().signOut());
+  $('forgotBtn').addEventListener('click',async()=>{
+    const email=$('email').value.trim();
+    if(!email){statusLogin('Bitte zuerst oben die E-Mail-Adresse eintragen.');return;}
+    try{
+      firebase.auth().languageCode='de';
+      await firebase.auth().sendPasswordResetEmail(email);
+    }catch(e){
+      if(e.code==='auth/invalid-email'){statusLogin('Das ist keine gültige E-Mail-Adresse.');return;}
+      if(e.code!=='auth/user-not-found'){statusLogin('Versand fehlgeschlagen: '+(e.message||e));return;}
+    }
+    statusLogin('Falls ein Konto zu dieser Adresse existiert, wurde eine E-Mail zum Zurücksetzen verschickt (bitte auch den Spam-Ordner prüfen).');
+  });
   $('rejectAll').addEventListener('click',async()=>{
     if($('rejectAll').dataset.armed!=='1'){armRejectAll(true);return;}
     armRejectAll(false);
@@ -205,7 +221,7 @@
     if(!staff){
       await firebase.auth().signOut();
       $('login').style.display='';$('app').style.display='none';
-      statusLogin('Dieser Account besitzt keine aktive Moderationsberechtigung.');
+      statusLogin('Dieser Account besitzt keine aktive Moderationsberechtigung. Falls du dich gerade erst registriert hast, muss ein Admin dich noch freischalten.');
       return;
     }
     $('login').style.display='none';$('app').style.display='block';
