@@ -64,56 +64,113 @@
   let staff = null;
   let db = null;
   let suggestionsRef = null;
-  const pending = new Map();
+  const pending = new Map();      // Firebase-Key -> {w, t}
+  const timers = new Map();       // Firebase-Key -> Timeout (Einblend-Verzögerung)
+  let offsetRef = null;
+  let errUntil = 0;
+  const SHOW_DELAY_MS = 2500;     // so lange warten, damit der Beamer bekannte Wörter vorher selbst abräumen kann (sonst Flackern)
 
-  function status(t, cls){ $('status').textContent=t; $('status').className=cls||''; }
+  function status(t, cls){
+    $('status').textContent=t; $('status').className=cls||'';
+    if(cls==='err') errUntil=Date.now()+6000;
+  }
+  // Gleiche Wörter (egal ob Groß-/Kleinschreibung) werden zu einer Zeile zusammengefasst.
+  function groups(){
+    const m=new Map();
+    for(const [id,v] of pending.entries()){
+      const k=v.w.toLowerCase();
+      let g=m.get(k);
+      if(!g){g={w:v.w,ids:[],t:v.t};m.set(k,g);}
+      g.ids.push(id); g.t=Math.min(g.t,v.t);
+    }
+    return Array.from(m.values()).sort((a,b)=>a.t-b.t);
+  }
   function render(){
     const list=$('list'); list.textContent='';
-    const items=Array.from(pending.entries()).sort((a,b)=>(a[1].t||0)-(b[1].t||0));
+    const items=groups();
     $('rejectAll').style.display=items.length?'':'none';
-    if(!items.length){const d=document.createElement('div');d.className='empty';d.textContent='Nichts zu prüfen.';list.appendChild(d);status('Keine wartenden Wörter.','ok');return;}
-    for(const [id,v] of items){
+    armRejectAll(false);
+    if(!items.length){
+      const d=document.createElement('div');d.className='empty';d.textContent='Nichts zu prüfen.';list.appendChild(d);
+      if(Date.now()>=errUntil) status('Keine wartenden Wörter.','ok');
+      return;
+    }
+    for(const g of items){
       const row=document.createElement('div');row.className='item';
-      const w=document.createElement('div');w.className='w';w.textContent=v.w;
+      const w=document.createElement('div');w.className='w';w.textContent=g.w;
+      if(g.ids.length>1){const n=document.createElement('span');n.textContent=' ×'+g.ids.length;n.style.cssText='font-size:14px;color:var(--dim);font-weight:400';w.appendChild(n);}
       const yes=document.createElement('button');yes.className='yes';yes.textContent='✓';yes.title='Freigeben';
       const no=document.createElement('button');no.className='no';no.textContent='✗';no.title='Ablehnen';
-      yes.addEventListener('click',()=>approve(id,v));
-      no.addEventListener('click',()=>reject(id));
+      yes.addEventListener('click',()=>approve(g));
+      no.addEventListener('click',()=>reject(g));
       row.append(w,yes,no);list.appendChild(row);
     }
-    status(items.length===1?'1 Wort wartet auf Prüfung.':items.length+' Wörter warten auf Prüfung.','ok');
+    if(Date.now()>=errUntil) status(items.length===1?'1 Wort wartet auf Prüfung.':items.length+' Wörter warten auf Prüfung.','ok');
   }
   function detach(){
     if(suggestionsRef){suggestionsRef.off();suggestionsRef=null;}
+    if(offsetRef){offsetRef.off();offsetRef=null;}
+    timers.forEach(t=>clearTimeout(t));timers.clear();
     pending.clear();
   }
   function attach(){
     detach();
+    // Serverzeit statt Geräteuhr: eine falsch gehende Uhr blendet sonst gültige Wörter aus.
+    offsetRef=db.ref('.info/serverTimeOffset');
+    offsetRef.on('value',snap=>{audienceServerOffset=Number(snap.val())||0;});
     suggestionsRef=db.ref(base+'/suggestions');
     suggestionsRef.on('child_added',snap=>{
       const v=snap.val()||{};
       const w=audienceNormalizeWord(v.w);
-      if(!w || (v.t && Date.now()-v.t>AUDIENCE_CONFIG.maxAgeHours*3600000)) return;
-      pending.set(snap.key,{w,t:v.t||Date.now()});render();
+      if(!w) return;
+      if(v.t && audienceNow()-v.t>AUDIENCE_CONFIG.maxAgeHours*3600000){
+        snap.ref.remove().catch(()=>{});   // Überbleibsel einer alten Session aufräumen, nicht nur ausblenden
+        return;
+      }
+      clearTimeout(timers.get(snap.key));
+      timers.set(snap.key,setTimeout(()=>{
+        timers.delete(snap.key);
+        pending.set(snap.key,{w,t:v.t||audienceNow()});render();
+      },SHOW_DELAY_MS));
+    },err=>{
+      status('Kein Zugriff auf die Wörter ('+(err&&err.message||err)+'). Bitte neu anmelden oder bei der Administration melden.','err');
     });
-    suggestionsRef.on('child_removed',snap=>{pending.delete(snap.key);render();});
+    suggestionsRef.on('child_removed',snap=>{
+      clearTimeout(timers.get(snap.key));timers.delete(snap.key);
+      pending.delete(snap.key);render();
+    });
     render();
   }
-  async function approve(id,v){
+  const sugRef=id=>db.ref(base+'/suggestions/'+id);
+  async function approve(g){
     if(!currentUser||!staff||!staff.active)return;
     try{
+      // Nur freigeben, wenn mindestens ein Eintrag noch existiert (Beamer oder andere Moderation war evtl. schneller).
+      const snaps=await Promise.all(g.ids.map(id=>sugRef(id).once('value')));
+      const alive=g.ids.filter((id,i)=>snaps[i].exists());
+      if(!alive.length){g.ids.forEach(id=>pending.delete(id));render();return;}
       await db.ref(base+'/approved').push({
-        w:v.w,
+        w:g.w,
         by:currentUser.uid,
         t:firebase.database.ServerValue.TIMESTAMP
       });
-      await db.ref(base+'/suggestions/'+id).remove();
-      pending.delete(id);render();
+      await Promise.all(alive.map(id=>sugRef(id).remove()));
+      g.ids.forEach(id=>pending.delete(id));render();
     }catch(e){status('Freigabe fehlgeschlagen: '+(e.message||e),'err');}
   }
-  async function reject(id){
-    try{await db.ref(base+'/suggestions/'+id).remove();pending.delete(id);render();}
-    catch(e){status('Ablehnen fehlgeschlagen: '+(e.message||e),'err');}
+  async function reject(g){
+    try{
+      await Promise.all(g.ids.map(id=>sugRef(id).remove()));
+      g.ids.forEach(id=>pending.delete(id));render();
+    }catch(e){status('Ablehnen fehlgeschlagen: '+(e.message||e),'err');}
+  }
+  // "Alle ablehnen" braucht zwei Tipps kurz hintereinander (Schutz vor Versehen).
+  let armTimer=null;
+  function armRejectAll(on){
+    clearTimeout(armTimer);
+    $('rejectAll').textContent=on?'SICHER? NOCHMAL TIPPEN':'ALLE ABLEHNEN';
+    $('rejectAll').dataset.armed=on?'1':'';
+    if(on) armTimer=setTimeout(()=>armRejectAll(false),3000);
   }
   async function checkStaff(user){
     const snap=await db.ref('staff/'+user.uid).once('value');
@@ -135,8 +192,9 @@
 
   $('logoutBtn').addEventListener('click',()=>firebase.auth().signOut());
   $('rejectAll').addEventListener('click',async()=>{
-    const ids=Array.from(pending.keys());
-    for(const id of ids) await reject(id);
+    if($('rejectAll').dataset.armed!=='1'){armRejectAll(true);return;}
+    armRejectAll(false);
+    for(const g of groups()) await reject(g);
   });
 
   firebase.auth().onAuthStateChanged(async user=>{

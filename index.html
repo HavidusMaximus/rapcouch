@@ -2716,7 +2716,7 @@ el.mpCreateBtn.addEventListener('click', () => {
   el.mpBtn.classList.add('active');
 });
 el.mpJoinBtn.addEventListener('click', () => {
-  const code = el.mpJoinInput.value.trim().toUpperCase();
+  const code = el.mpJoinInput.value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
   if (!code) return;
   joinSession(code);
   el.mpBtn.classList.add('active');
@@ -2757,29 +2757,42 @@ const aud = {
   known: null,            // Set aller bekannten Wörter (klein), lazy
   seen: new Set(),        // bereits verarbeitete Firebase-Keys
   refs: [],               // aktive Listener
+  keepAlive: null,        // Listener auf .info/connected (hält open aktuell)
 };
 const $aud = (id) => document.getElementById(id);
 
 function audKnown(){
-  if (!aud.known) aud.known = new Set(WORDS.map(w => w.toLowerCase()));
+  // klein geschrieben -> Schreibweise aus der eigenen Wortliste (damit "cOuCh" als "Couch" erscheint)
+  if (!aud.known){
+    aud.known = new Map();
+    WORDS.forEach(w => aud.known.set(w.toLowerCase(), w));
+  }
   return aud.known;
 }
-function audBase(){ return 'audience/' + AUDIENCE_CONFIG.event; }
+function audEvent(){ return audienceEventFromUrl(); }
+function audBase(){ return 'audience/' + audEvent(); }
 function audDb(){ return (state.mp.available && aud.staffAuthorized && typeof firebase !== 'undefined') ? firebase.database() : null; }
-function audTargetUrl(){ return new URL('mitmachen.html', location.href.split('#')[0].split('?')[0]).href; }
-function audModUrl(){ return new URL('moderieren.html', location.href.split('#')[0].split('?')[0]).href; }
+function audPageUrl(file){
+  const u = new URL(file, location.href.split('#')[0].split('?')[0]);
+  if (audEvent() !== AUDIENCE_CONFIG.event) u.searchParams.set('e', audEvent()); // gleicher Event-Knoten auf allen Seiten
+  return u.href;
+}
+function audTargetUrl(){ return audPageUrl('mitmachen.html'); }
+function audModUrl(){ return audPageUrl('moderieren.html'); }
 function audEligible(){ return !state.mp.active && (state.mode === 'takt' || state.mode === 'kategorie'); }
 
 function audLoad(){
   try {
     const d = JSON.parse(localStorage.getItem('rapcouch-aud') || '{}');
-    if (Array.isArray(d.queue)) aud.queue = d.queue.filter(x => typeof x === 'string').slice(0, 30);
+    // Eine gespeicherte Warteschlange von einer früheren Session wird nicht übernommen.
+    const fresh = d.savedAt && (Date.now() - d.savedAt) < AUDIENCE_CONFIG.maxAgeHours * 3600000;
+    if (fresh && Array.isArray(d.queue)) aud.queue = d.queue.filter(x => typeof x === 'string').slice(0, 30);
     if (d.mode === 'every3') aud.mode = 'every3';
     if (d.moderation === 'mod') aud.moderation = 'mod';
   } catch (e){}
 }
 function audSave(){
-  try { localStorage.setItem('rapcouch-aud', JSON.stringify({ queue: aud.queue, mode: aud.mode, moderation: aud.moderation })); } catch (e){}
+  try { localStorage.setItem('rapcouch-aud', JSON.stringify({ queue: aud.queue, mode: aud.mode, moderation: aud.moderation, savedAt: Date.now() })); } catch (e){}
 }
 
 function audIsDuplicate(w){
@@ -2833,9 +2846,10 @@ function audOnSuggestion(snap){
   aud.stats.in++;
   const remove = () => { try { snap.ref.remove(); } catch (e){} };
   const w = audienceNormalizeWord(v.w);
-  const tooOld = v.t && (Date.now() - v.t > AUDIENCE_CONFIG.maxAgeHours * 3600000);
+  const tooOld = v.t && (audienceNow() - v.t > AUDIENCE_CONFIG.maxAgeHours * 3600000);
   if (!w || tooOld || audIsDuplicate(w)){ aud.stats.dropped++; remove(); audRender(); return; }
-  if (audKnown().has(w.toLowerCase())){ aud.stats.auto++; remove(); audEnqueue(w); return; }
+  const canon = audKnown().get(w.toLowerCase());
+  if (canon){ aud.stats.auto++; remove(); audEnqueue(canon); return; }
   if (aud.moderation === 'known'){ aud.stats.dropped++; remove(); audRender(); return; }
   // moderation === 'mod': bleibt in der Datenbank, bis das Mod-Gerät entscheidet.
   audRender();
@@ -2844,10 +2858,13 @@ function audOnSuggestion(snap){
 function audOnApproved(snap){
   const v = snap.val() || {};
   const remove = () => { try { snap.ref.remove(); } catch (e){} };
-  const w = audienceNormalizeWord(v.w);
+  const w0 = audienceNormalizeWord(v.w);
   // Die Datenbankregeln erlauben neue Freigaben ausschließlich aktiven ModeratorInnen/Admins.
-  if (!w || typeof v.by !== 'string'){ remove(); return; }
+  if (!w0 || typeof v.by !== 'string'){ remove(); return; }
   remove();
+  // Veraltete Freigaben (Beamer war zwischendurch offline) nicht mehr einspielen.
+  if (v.t && audienceNow() - v.t > AUDIENCE_CONFIG.maxApprovedAgeMinutes * 60000){ aud.stats.dropped++; audRender(); return; }
+  const w = audKnown().get(w0.toLowerCase()) || w0;
   if (audIsDuplicate(w)){ aud.stats.dropped++; audRender(); return; }
   aud.stats.approved++;
   audEnqueue(w);
@@ -2855,15 +2872,41 @@ function audOnApproved(snap){
 
 function audAttach(db){
   audDetach();
+  const oRef = db.ref('.info/serverTimeOffset');
+  const onOffset = (snap) => { audienceServerOffset = Number(snap.val()) || 0; };
+  oRef.on('value', onOffset);   // muss vor den Listenern laufen, damit die Altersprüfung die Serverzeit kennt
   const sRef = db.ref(audBase() + '/suggestions');
   const aRef = db.ref(audBase() + '/approved');
   sRef.on('child_added', audOnSuggestion);
   aRef.on('child_added', audOnApproved);
-  aud.refs = [[sRef, 'child_added', audOnSuggestion], [aRef, 'child_added', audOnApproved]];
+  aud.refs = [[oRef, 'value', onOffset], [sRef, 'child_added', audOnSuggestion], [aRef, 'child_added', audOnApproved]];
 }
 function audDetach(){
   aud.refs.forEach(([r, ev, fn]) => { try { r.off(ev, fn); } catch (e){} });
   aud.refs = [];
+}
+
+// Hält "open" richtig, solange diese Seite offen ist: Bei JEDER (Wieder-)Verbindung wird
+// der Auto-Schließen-Handler neu gesetzt und open wieder auf true gestellt. onDisconnect
+// feuert nämlich nur einmal – ohne das bliebe open nach einem WLAN-Aussetzer auf false,
+// obwohl der Beamer weiter "AN" anzeigt.
+function audKeepOpenAlive(db){
+  audStopKeepOpen();
+  const connRef = db.ref('.info/connected');
+  const onConn = (snap) => {
+    if (snap.val() !== true || !aud.open || !aud.staffAuthorized) return;
+    const openRef = db.ref(audBase() + '/open');
+    openRef.onDisconnect().set(false)
+      .then(() => openRef.set(true))
+      .catch(() => { aud.open = false; audStopKeepOpen(); audRender(); });
+  };
+  connRef.on('value', onConn);
+  aud.keepAlive = [connRef, onConn];
+}
+function audStopKeepOpen(){
+  if (!aud.keepAlive) return;
+  try { aud.keepAlive[0].off('value', aud.keepAlive[1]); } catch (e){}
+  aud.keepAlive = null;
 }
 
 function audSetOpen(on){
@@ -2872,11 +2915,13 @@ function audSetOpen(on){
   aud.open = on;
   const openRef = db.ref(audBase() + '/open');
   if (on){
-    // Schließt die Einreichungen automatisch, falls diese Seite zugeht/abstürzt.
-    openRef.onDisconnect().set(false);
-    openRef.set(true).catch(() => { aud.open = false; audRender(); });
+    // open=true und das automatische Schließen (Seite zu/abgestürzt) setzt audKeepOpenAlive,
+    // sobald die Verbindung steht – und bei jeder Wiederverbindung erneut.
     audAttach(db);
+    audKeepOpenAlive(db);
   } else {
+    audStopKeepOpen();
+    openRef.onDisconnect().cancel().catch(() => {});
     openRef.set(false).catch(() => {});
     audDetach();
   }
@@ -2977,13 +3022,16 @@ function audInit(){
     catch (e) { $aud('audLoginMessage').textContent = 'Anmeldung fehlgeschlagen: ' + (e.message || e); }
   });
   $aud('audLogoutBtn').addEventListener('click', async () => {
+    audStopKeepOpen();
     if (aud.staffAuthorized && aud.open) {
       try { await firebase.database().ref(audBase() + '/open').set(false); } catch (e) {}
     }
     aud.open = false;
     await firebase.auth().signOut();
   });
-  firebase.auth().onAuthStateChanged(async user => {
+  // Ohne geladenes/initialisiertes Firebase (z. B. kein Internet) bleibt der Rest der Seite voll nutzbar.
+  if (state.mp.available && typeof firebase !== 'undefined') firebase.auth().onAuthStateChanged(async user => {
+    audStopKeepOpen();
     aud.staffAuthorized = false; aud.staffRole = ''; aud.staffUser = null;
     if (user) {
       try {
@@ -2999,7 +3047,7 @@ function audInit(){
         }
       } catch (e) { $aud('audLoginMessage').textContent = 'Berechtigung konnte nicht geprüft werden: ' + e.message; }
     }
-    if (aud.staffAuthorized && aud.open) audAttach(firebase.database());
+    if (aud.staffAuthorized && aud.open){ audAttach(firebase.database()); audKeepOpenAlive(firebase.database()); }
     else audDetach();
     audRender();
   });

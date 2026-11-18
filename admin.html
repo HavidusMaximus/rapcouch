@@ -47,6 +47,9 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
     <input id="newEmail" type="email" placeholder="name@example.org">
     <label for="newRole">ROLLE</label>
     <select id="newRole"><option value="moderator">ModeratorIn</option><option value="admin">AdministratorIn</option></select>
+    <label for="newUid">UID (NUR ZUR REPARATUR, SONST LEER LASSEN)</label>
+    <input id="newUid" placeholder="UID aus der Firebase Console (Authentication)">
+    <p class="hint">Nur nötig, wenn ein Account schon existiert, aber noch kein Eintrag dazu (z. B. nach einem Fehler beim Anlegen). Dann wird kein neuer Account erstellt, sondern nur der Eintrag mit dieser UID geschrieben.</p>
     <button id="createBtn">ACCOUNT ANLEGEN</button>
     <div id="message"></div>
   </section>
@@ -125,13 +128,28 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
 
   $('createBtn').addEventListener('click',async()=>{
     const name=$('newName').value.trim(),email=$('newEmail').value.trim().toLowerCase(),role=$('newRole').value;
+    const repairUid=$('newUid').value.trim();
     if(!name||!email){say('Bitte Anzeigename und E-Mail-Adresse eintragen.');return;}
-    $('createBtn').disabled=true;say('Account wird angelegt …');
+    if(repairUid&&!/^[A-Za-z0-9]{20,40}$/.test(repairUid)){say('Die UID sieht nicht richtig aus (siehe Firebase Console → Authentication).');return;}
+    $('createBtn').disabled=true;
+    if(repairUid){
+      say('Eintrag wird geschrieben …');
+      try{
+        await db.ref('staff/'+repairUid).set({displayName:name,email:email,role:role,active:true,createdAt:firebase.database.ServerValue.TIMESTAMP});
+        say('Eintrag für '+email+' (UID '+repairUid+') mit Rolle '+role+' geschrieben.');
+        $('newName').value='';$('newEmail').value='';$('newUid').value='';await loadStaff();
+      }catch(e){say('Eintrag fehlgeschlagen: '+e.message);}
+      finally{$('createBtn').disabled=false;}
+      return;
+    }
+    say('Account wird angelegt …');
+    let createdUid='';
     try{
       if(!staffCreator) staffCreator=firebase.apps.find(a=>a.name==='rapcouch-staff-creator')||firebase.initializeApp(FIREBASE_CONFIG,'rapcouch-staff-creator');
       const auth=staffCreator.auth();
       const cred=await auth.createUserWithEmailAndPassword(email,randomPassword());
       const newUser=cred.user;
+      createdUid=newUser.uid;
       await db.ref('staff/'+newUser.uid).set({
         displayName:name,email:email,role:role,active:true,
         createdAt:firebase.database.ServerValue.TIMESTAMP
@@ -142,7 +160,12 @@ label{font:11px monospace;letter-spacing:.08em;color:var(--dim)}
       await auth.signOut();
       say('Account '+email+' wurde mit Rolle '+role+' angelegt.'+mailInfo+' UID: '+newUser.uid);
       $('newName').value='';$('newEmail').value='';await loadStaff();
-    }catch(e){say('Anlegen fehlgeschlagen: '+e.message);}
+    }catch(e){
+      say(createdUid
+        ? 'Account wurde angelegt (UID '+createdUid+'), aber der Eintrag konnte nicht geschrieben werden: '+e.message+' – UID oben im Feld „UID“ eintragen und nochmal absenden.'
+        : 'Anlegen fehlgeschlagen: '+e.message);
+      if(createdUid) $('newUid').value=createdUid;
+    }
     finally{$('createBtn').disabled=false;}
   });
 

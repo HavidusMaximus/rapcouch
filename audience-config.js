@@ -19,6 +19,10 @@ const AUDIENCE_CONFIG = {
 
   // Einreichungen, die älter sind, gelten als Überbleibsel einer früheren Session.
   maxAgeHours: 6,
+
+  // Freigaben, die älter sind, werden beim Beamer nicht mehr eingespielt
+  // (z. B. weil der Beamer zwischendurch offline war).
+  maxApprovedAgeMinutes: 20,
 };
 
 // Einheitliche Prüfung/Bereinigung eines eingereichten Wortes. Gibt das
@@ -36,3 +40,8 @@ function audienceEventFromUrl(){
   const e = new URLSearchParams(location.search).get('e');
   return (e && /^[A-Za-z0-9_-]{1,32}$/.test(e)) ? e : AUDIENCE_CONFIG.event;
 }
+
+// Aktuelle Serverzeit (ms). Der Offset kommt aus Firebase (.info/serverTimeOffset);
+// so spielt eine falsch gehende Handy-/Laptop-Uhr bei Altersprüfungen keine Rolle.
+let audienceServerOffset = 0;
+function audienceNow(){ return Date.now() + audienceServerOffset; }
