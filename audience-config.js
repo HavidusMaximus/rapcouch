@@ -35,6 +35,28 @@ function audienceNormalizeWord(raw){
   return w;
 }
 
+// Sperrliste für Publikumswörter. Auch wenn ein Wort in der eigenen Wortliste steht,
+// läuft es bei einem Treffer NICHT automatisch auf den Beamer:
+//   - Modus "Verwerfen": Das Wort wird verworfen.
+//   - Modus "Per Mod-Gerät": Das Wort wartet auf eine bewusste Freigabe und ist auf
+//     der Moderationsseite markiert.
+// Geprüft wird gegen das klein geschriebene Wort. Die Muster sind so gewählt, dass harmlose
+// Wörter wie "Tischlampe", "Sandwichs", "Broschuren" oder "Mongole" nicht getroffen werden.
+// Einfach erweitern: ein weiterer regulärer Ausdruck pro Zeile.
+const AUDIENCE_BLOCKLIST = [
+  /fotze/, /(^|[^cs])hure/, /nutte/, /(^|[^dh])wichs/, /(^|[^i])schlampe/,
+  /neger/, /nigger/, /kanake/, /kanacke/, /schwuchtel/, /zigeuner/, /schlitzauge/,
+  /bimbo/, /untermensch/, /judensau/, /nazi(?!t)/, /hitler/, /holocaust/,
+  /hakenkreuz/, /siegheil/, /endsieg/, /^kz$/, /vergewaltig/, /kindesmissbrauch/,
+  /kinderporn/, /p(ä|ae)do/, /inzest/, /fick/, /arschloch/, /spast/, /^mongo(?!l)/,
+  /^behindert$/, /missgeburt/, /pimmel/, /m(ö|oe)se(n)?$/, /muschi/, /titte/,
+  /penis/, /vagina/, /schwanzlutsch/, /porno/,
+];
+function audienceIsBlocked(word){
+  const w = String(word == null ? '' : word).normalize('NFC').toLowerCase();
+  return AUDIENCE_BLOCKLIST.some(re => re.test(w));
+}
+
 // Event-Name aus der URL (?e=...) – nur harmlose Zeichen zulassen.
 function audienceEventFromUrl(){
   const e = new URLSearchParams(location.search).get('e');

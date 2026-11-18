@@ -635,6 +635,9 @@
     cursor:pointer; text-align:center;
   }
   #mpJoinRow{ display:flex; gap:8px; }
+  #mpPanel{ max-height: 88vh; overflow-y:auto; }
+  #mpAuthMessage{ color: var(--accent); }
+  .linkLike{ text-decoration: underline; cursor: pointer; }
   #mpJoinRow input[type=text]{
     flex:1; background: var(--bg); border:1px solid var(--line); border-radius:8px;
     color: var(--fg); font-family:'JetBrains Mono',monospace; font-size:13px;
@@ -1026,6 +1029,26 @@
     <div id="mpBody">
       <div id="mpStatus">Nicht verbunden – volle lokale Kontrolle.</div>
 
+      <div id="mpAuthBox" class="filterRow" style="display:none;">
+        <div class="filterLabel"><span>KONTO</span></div>
+        <div id="mpLoginForm">
+          <div class="hintSmall">Für den Multiplayer brauchst du ein RapCouch-Konto mit bestätigter E-Mail-Adresse.</div>
+          <input type="text" class="audInput" id="mpName" maxlength="60" placeholder="Name (nur für ein neues Konto)" autocomplete="nickname">
+          <input type="email" class="audInput" id="mpEmail" placeholder="E-Mail-Adresse" autocomplete="username">
+          <input type="password" class="audInput" id="mpPassword" placeholder="Passwort (mind. 6 Zeichen)" autocomplete="current-password">
+          <div class="spBtn" id="mpLoginBtn" style="margin-top:8px;">Anmelden</div>
+          <div class="spBtnSecondaryLike" id="mpRegisterBtn" style="margin-top:8px;">Neues Konto erstellen</div>
+          <div class="spBtnSecondaryLike" id="mpResetBtn" style="margin-top:8px;">Passwort vergessen</div>
+        </div>
+        <div id="mpVerifyBox" style="display:none;">
+          <div class="hintSmall" id="mpVerifyText"></div>
+          <div class="spBtn" id="mpVerifiedBtn" style="margin-top:8px;">Ich habe bestätigt</div>
+          <div class="spBtnSecondaryLike" id="mpResendBtn" style="margin-top:8px;">Bestätigungs-Mail erneut senden</div>
+        </div>
+        <div class="hintSmall" id="mpAuthMessage"></div>
+      </div>
+      <div class="hintSmall" id="mpAccountRow" style="display:none;"><span id="mpAccountText"></span> · <span id="mpLogoutBtn" class="linkLike">Abmelden</span></div>
+
       <div id="mpConnectedInfo" class="filterRow" style="display:none;">
         <div class="filterLabel"><span>AKTUELLE SESSION</span></div>
         <div id="mpSessionCodeBox">
@@ -1036,7 +1059,7 @@
         <div class="spBtnSecondaryLike" id="mpLeaveBtn" style="margin-top:10px;">Session verlassen</div>
       </div>
 
-      <div class="filterRow" id="mpJoinOptions">
+      <div class="filterRow" id="mpJoinOptions" style="display:none;">
         <div class="spBtn" id="mpJoinPublicBtn" style="margin-bottom:8px;">Öffentlicher Session beitreten</div>
         <div class="spBtn" id="mpCreateBtn" style="margin-bottom:8px;">Eigene Session erstellen</div>
         <div id="mpJoinRow">
@@ -1066,9 +1089,15 @@
     <div id="audAuthBox" class="filterRow" style="display:none;">
       <div class="filterLabel"><span>MODERATIONSKONTO</span></div>
       <div class="hintSmall">Bitte mit einem aktiven RapCouch-Moderator- oder Admin-Konto anmelden, um Publikumswörter zu verwalten.</div>
-      <input type="email" class="audInput" id="audLoginEmail" placeholder="E-Mail-Adresse" autocomplete="username">
-      <input type="password" class="audInput" id="audLoginPassword" placeholder="Passwort" autocomplete="current-password">
-      <div class="spBtn" id="audLoginBtn" style="margin-top:8px;">ANMELDEN</div>
+      <div id="audLoginForm">
+        <input type="email" class="audInput" id="audLoginEmail" placeholder="E-Mail-Adresse" autocomplete="username">
+        <input type="password" class="audInput" id="audLoginPassword" placeholder="Passwort" autocomplete="current-password">
+        <div class="spBtn" id="audLoginBtn" style="margin-top:8px;">ANMELDEN</div>
+      </div>
+      <div id="audSignedInBox" style="display:none;">
+        <div class="hintSmall" id="audSignedInText"></div>
+        <div class="spBtnSecondaryLike" id="audSignedInLogout" style="margin-top:8px;">Abmelden</div>
+      </div>
       <div class="hintSmall" id="audLoginMessage"></div>
     </div>
     <div id="audBody" style="display:none;">
@@ -1199,9 +1228,15 @@ const state = {
     seed: null,
     startedAt: null,
     lastWordChangeNumber: null,
+    lastBeat: null,
     applyingRemote: false,
     ref: null,
     presenceRef: null,
+    presenceListRef: null,
+    presenceListener: null,
+    offsetRef: null,
+    offsetListener: null,
+    topics: [],         // gemeinsame Themenliste der Session (siehe activeTopics)
   },
 };
 
@@ -1306,6 +1341,22 @@ const el = {
   mpJoinPublicBtn: document.getElementById('mpJoinPublicBtn'),
   mpConnectedInfo: document.getElementById('mpConnectedInfo'),
   mpJoinOptions: document.getElementById('mpJoinOptions'),
+  mpAuthBox: document.getElementById('mpAuthBox'),
+  mpLoginForm: document.getElementById('mpLoginForm'),
+  mpName: document.getElementById('mpName'),
+  mpEmail: document.getElementById('mpEmail'),
+  mpPassword: document.getElementById('mpPassword'),
+  mpLoginBtn: document.getElementById('mpLoginBtn'),
+  mpRegisterBtn: document.getElementById('mpRegisterBtn'),
+  mpResetBtn: document.getElementById('mpResetBtn'),
+  mpVerifyBox: document.getElementById('mpVerifyBox'),
+  mpVerifyText: document.getElementById('mpVerifyText'),
+  mpVerifiedBtn: document.getElementById('mpVerifiedBtn'),
+  mpResendBtn: document.getElementById('mpResendBtn'),
+  mpAuthMessage: document.getElementById('mpAuthMessage'),
+  mpAccountRow: document.getElementById('mpAccountRow'),
+  mpAccountText: document.getElementById('mpAccountText'),
+  mpLogoutBtn: document.getElementById('mpLogoutBtn'),
 };
 
 /* ---------------- word meta & filtering ---------------- */
@@ -1417,8 +1468,9 @@ function currentWordSource(){
     if (state.themaSource === 'situations' && typeof SITUATIONS !== 'undefined' && SITUATIONS.length){
       return SITUATIONS;
     }
-    if (state.themaSource === 'custom' && state.customTopics.length){
-      return state.customTopics;
+    const topics = activeTopics();
+    if (state.themaSource === 'custom' && topics.length){
+      return topics;
     }
   }
   if (state.mode === 'kategorie'){
@@ -1495,6 +1547,13 @@ function renderWords(){
 // dem neuen Pool gezogen, damit sich die Änderung nicht erst mit Verzögerung
 // bemerkbar macht. Das aktuell angezeigte Wort bleibt unangetastet.
 function refreshNextWord(){
+  if (state.mp.active){
+    // Im Multiplayer sind die Wörter aus Seed + Zeit berechnet. Statt lokal zufällig zu ziehen
+    // (das würde vom Rest der Session abweichen), beim nächsten Tick neu berechnen lassen.
+    state.mp.lastWordChangeNumber = null;
+    state.mp.lastBeat = null;
+    return;
+  }
   if (!state.started || state.nextIsAud) return; // ein vorgemerktes Publikumswort nicht verwerfen
   state.nextWord = pickWord();
   state.nextIsAud = pickWord.aud;
@@ -1528,10 +1587,14 @@ window.addEventListener('resize', fitWord);
 // unterscheidet sich).
 function tickBeat(){
   if (state.mp.active && state.mp.startedAt){
-    state.beatCount = Math.floor((Date.now() - state.mp.startedAt) / intervalMs());
+    const beat = Math.floor((mpNow() - state.mp.startedAt) / intervalMs());
+    // Derselbe Beat darf nicht zweimal verarbeitet werden (sonst blitzt z. B. "WECHSEL!" doppelt).
+    if (beat === state.mp.lastBeat) return;
+    state.mp.lastBeat = beat;
+    state.beatCount = beat;
   }
 
-  const beatInBar = state.beatCount % 4;
+  const beatInBar = ((state.beatCount % 4) + 4) % 4;
   el.dots.forEach(d => d.classList.remove('on'));
   el.dots[beatInBar].classList.add('on');
 
@@ -1590,11 +1653,58 @@ function intervalMs(){
   return 60000 / state.bpm;
 }
 
-function startBeatClock(){
+// Gemeinsame Uhr im Multiplayer: Serverzeit statt Geräteuhr. Geht die Uhr eines Geräts ein
+// paar Sekunden falsch, würde es sonst andere Wörter anzeigen als alle anderen.
+// (audienceNow/audienceServerOffset kommen aus audience-config.js; der Offset wird beim
+// Beitritt zu einer Session aus .info/serverTimeOffset gelesen.)
+function mpNow(){
+  return audienceNow();
+}
+
+// Taktgeber: setInterval läuft mit der Zeit davon (jeder Aufruf kommt ein paar Millisekunden
+// zu spät, und das summiert sich – nach ein paar Minuten liegt der Wortwechsel hörbar neben
+// dem Beat). startTimer plant jeden Tick relativ zu einem festen Startpunkt neu, Abweichungen
+// summieren sich also nicht. Im Multiplayer richtet align() die Ticks zusätzlich an der
+// gemeinsamen Startzeit aus, damit alle Geräte im selben Moment wechseln.
+function startTimer(fn, ivMs, opts){
   stopClock();
+  const o = opts || {};
+  const token = {};
+  state.timerToken = token;
+  let anchor = performance.now();
+  let n = 0;
+  const schedule = () => {
+    let delay = o.align ? o.align() : null;
+    if (delay === null){
+      n++;
+      let next = anchor + n * ivMs;
+      const now = performance.now();
+      // Tab war im Hintergrund (Browser drosseln Timer): neu ausrichten statt alle verpassten Ticks nachzuholen.
+      if (now - next > ivMs){ anchor = now - n * ivMs; next = now; }
+      delay = next - now;
+    }
+    state.timer = setTimeout(step, Math.max(0, delay));
+  };
+  const step = () => {
+    if (state.timerToken !== token) return;
+    fn();
+    if (state.timerToken !== token) return; // fn hat den Takt selbst neu gestartet/gestoppt
+    schedule();
+  };
+  if (o.immediate) step(); else schedule();
+}
+
+// Verzögerung bis zur nächsten gemeinsamen Takt-Grenze (Multiplayer), sonst null.
+function mpAlignDelay(ivMs){
+  if (!state.mp.active || !state.mp.startedAt) return null;
+  const elapsed = mpNow() - state.mp.startedAt;
+  return ivMs - (((elapsed % ivMs) + ivMs) % ivMs) + 5; // +5 ms: sicher schon im neuen Beat
+}
+
+function startBeatClock(){
   state.beatCount = 0;
-  tickBeat();
-  state.timer = setInterval(tickBeat, intervalMs());
+  state.mp.lastBeat = null;
+  startTimer(tickBeat, intervalMs(), { immediate: true, align: () => mpAlignDelay(intervalMs()) });
 }
 
 /* ---------------- THEMA clock (zeitbasiert) ---------------- */
@@ -1609,7 +1719,7 @@ function updateThemaDisplay(){
 
 function themaTick(){
   if (state.mp.active && state.mp.startedAt){
-    const elapsedSec = Math.floor((Date.now() - state.mp.startedAt) / 1000);
+    const elapsedSec = Math.max(0, Math.floor((mpNow() - state.mp.startedAt) / 1000));
     const wordChangeNumber = Math.floor(elapsedSec / state.intervalSec);
     state.themaRemaining = state.intervalSec - (elapsedSec % state.intervalSec);
     if (wordChangeNumber !== state.mp.lastWordChangeNumber){
@@ -1627,17 +1737,16 @@ function themaTick(){
 }
 
 function startThemaClock(){
-  stopClock();
   if (!state.mp.active) ensureStarted();
   state.themaRemaining = state.intervalSec;
   updateThemaDisplay();
-  if (state.mp.active) themaTick();
-  state.timer = setInterval(themaTick, 1000);
+  startTimer(themaTick, 1000, { immediate: state.mp.active, align: () => mpAlignDelay(1000) });
 }
 
 function stopClock(){
-  if (state.timer) clearInterval(state.timer);
+  if (state.timer) clearTimeout(state.timer);
   state.timer = null;
+  state.timerToken = null;
 }
 
 /* ---------------- GRAB THE BAG (Bilder statt Wörter) ----------------
@@ -1669,17 +1778,35 @@ function bagKeyConfigured(){
   return key && !key.includes('DEIN_') ? key : null;
 }
 
+// Nur https-Links übernehmen (Schutz gegen javascript:-URLs o. Ä. aus der API-Antwort).
+function bagSafeUrl(u){
+  try { const x = new URL(u); return x.protocol === 'https:' ? x.href : null; } catch (e){ return null; }
+}
+function bagUtm(u){
+  const safe = bagSafeUrl(u);
+  if (!safe) return null;
+  const x = new URL(safe);
+  x.searchParams.set('utm_source', 'rapcouch');
+  x.searchParams.set('utm_medium', 'referral');
+  return x.href;
+}
+
 async function fetchFromUnsplash(accessKey){
   const query = BAG_QUERIES[Math.floor(Math.random() * BAG_QUERIES.length)];
   const url = `https://api.unsplash.com/photos/random?query=${encodeURIComponent(query)}&content_filter=high&orientation=squarish`;
   const res = await fetch(url, { headers: { Authorization: `Client-ID ${accessKey}` } });
   if (!res.ok) throw new Error('Unsplash-Anfrage fehlgeschlagen (' + res.status + ')');
   const data = await res.json();
+  const imgUrl = data.urls?.regular || data.urls?.small;
+  if (!imgUrl || !data.id) throw new Error('Unsplash-Antwort ohne Bild');
+  // Quellenangabe nach den Unsplash-Richtlinien: Fotograf:in + Unsplash, jeweils verlinkt mit UTM-Parametern.
   return {
-    url: data.urls?.regular || data.urls?.small,
+    url: imgUrl,
     key: 'unsplash:' + data.id,
-    credit: data.user?.name ? `Foto: ${data.user.name} / Unsplash` : 'Foto von Unsplash',
-    creditUrl: data.links?.html || 'https://unsplash.com',
+    credit: data.user?.name ? `Foto: ${data.user.name}` : 'Foto',
+    creditUrl: bagUtm(data.user?.links?.html || data.links?.html),
+    credit2: 'Unsplash',
+    credit2Url: bagUtm('https://unsplash.com/'),
     source: 'unsplash',
   };
 }
@@ -1729,7 +1856,20 @@ function renderBagImage(){
   el.bagImg.alt = 'Zufälliger Gegenstand aus dem Sack';
   el.bagImg.classList.add('show');
   el.bagPlaceholder.style.display = 'none';
-  el.bagCredit.innerHTML = `<a href="${item.creditUrl}" target="_blank" rel="noopener">${item.credit}</a>`;
+  // Bewusst per DOM statt innerHTML: Der Name kommt von Unsplash-Nutzer:innen und könnte HTML enthalten.
+  el.bagCredit.textContent = '';
+  const addLink = (text, href) => {
+    const safe = href ? bagSafeUrl(href) : null;
+    const node = document.createElement(safe ? 'a' : 'span');
+    node.textContent = text;
+    if (safe){ node.href = safe; node.target = '_blank'; node.rel = 'noopener noreferrer'; }
+    el.bagCredit.appendChild(node);
+  };
+  addLink(item.credit, item.creditUrl);
+  if (item.credit2){
+    el.bagCredit.appendChild(document.createTextNode(' / '));
+    addLink(item.credit2, item.credit2Url);
+  }
 }
 
 function updateBagUsedInfo(){
@@ -1775,14 +1915,13 @@ function bagTick(){
 }
 
 function startBagClock(){
-  stopClock();
   el.bagProgress.classList.remove('lastSec');
   if (!state.bag.current && !state.bag.loading){
     state.bag.remaining = state.bag.seconds;
     loadNextBagItem();
   }
   updateBagDisplay();
-  state.timer = setInterval(bagTick, 1000);
+  startTimer(bagTick, 1000);
 }
 
 // Manuelles Ziehen eines neuen Gegenstands (Skip-Button / Taste N),
@@ -1804,7 +1943,14 @@ function setPlaying(p){
   if (isMpLocked()) return; // gesperrt, immer an
   state.playing = p;
   if (p){
-    if (state.mp.active) state.mp.startedAt = Date.now();
+    // Nur das Gerät, das wirklich auf Play gedrückt hat, setzt Startzeit und Seed neu. Kommt das
+    // Play aus der Datenbank (applyingRemote), gilt die übertragene Startzeit – sonst würde jedes
+    // Gerät ab seinem eigenen Empfangszeitpunkt zählen und andere Wörter zeigen. Der neue Seed
+    // sorgt dafür, dass nach Pause/Play nicht wieder dieselbe Wortfolge von vorne beginnt.
+    if (state.mp.active && !state.mp.applyingRemote){
+      state.mp.startedAt = mpNow();
+      state.mp.seed = generateSeed();
+    }
     el.playBtn.classList.add('playing');
     el.playIcon.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
     el.category.textContent = 'LIVE';
@@ -1867,12 +2013,10 @@ function resyncClock(){
   if (state.mode === 'thema'){
     state.themaRemaining = state.intervalSec;
     updateThemaDisplay();
-    stopClock();
-    state.timer = setInterval(themaTick, 1000);
+    startTimer(themaTick, 1000);
   } else {
     state.beatCount = 0;
-    stopClock();
-    state.timer = setInterval(tickBeat, intervalMs());
+    startTimer(tickBeat, intervalMs());
     el.dots.forEach(d => d.classList.remove('on'));
     if (state.turnEnabled) resetTurnDisplay();
   }
@@ -1914,7 +2058,19 @@ function setBpm(v){
   if (isMpLocked()) return;
   const min = parseInt(el.bpmSlider.min, 10);
   const max = parseInt(el.bpmSlider.max, 10);
+  if (!isFinite(v)) return;
+  const oldIntervalMs = intervalMs();
   state.bpm = Math.max(min, Math.min(max, v));
+  // Multiplayer: Der Wortindex wird aus (Zeit seit Start) / Beatlänge berechnet. Ohne Anpassung
+  // würde eine BPM-Änderung mitten im Spiel um viele Wörter springen. Deshalb die Startzeit so
+  // verschieben, dass die aktuelle Position im Takt erhalten bleibt. Kommt die Änderung aus der
+  // Datenbank, hat das sendende Gerät das schon erledigt.
+  if (state.mp.active && state.mp.startedAt && !state.mp.applyingRemote && state.playing &&
+      state.mode !== 'thema' && state.mode !== 'bag'){
+    const now = mpNow();
+    const beatsSoFar = (now - state.mp.startedAt) / oldIntervalMs;
+    state.mp.startedAt = Math.round(now - beatsSoFar * intervalMs());
+  }
   el.bpmVal.textContent = state.bpm;
   el.bpmSlider.value = state.bpm;
   el.secPerBeatSlider.value = secPerWordChange(state.bpm).toFixed(1);
@@ -2260,7 +2416,16 @@ el.bpmAutoDoubleBtn.addEventListener('click', () => bpmAutoApplyOctaveCorrection
 
 /* ---- Thema interval controls ---- */
 function updateIntervalState(){
+  const oldIntervalSec = state.intervalSec;
   state.intervalSec = Math.max(5, state.intervalMin * 60 + state.intervalSecPart);
+  // Multiplayer: aktuelles Thema behalten und ab jetzt mit dem neuen Intervall weiterzählen,
+  // statt anhand der neuen Länge auf ein ganz anderes Thema zu springen (vgl. setBpm).
+  if (state.mp.active && state.mp.startedAt && !state.mp.applyingRemote && state.playing &&
+      state.mode === 'thema' && oldIntervalSec !== state.intervalSec){
+    const now = mpNow();
+    const idx = Math.floor((now - state.mp.startedAt) / (oldIntervalSec * 1000));
+    state.mp.startedAt = Math.round(now - idx * state.intervalSec * 1000);
+  }
   el.minVal.textContent = String(state.intervalMin).padStart(2, '0');
   el.secVal.textContent = String(state.intervalSecPart).padStart(2, '0');
   el.secSlider.value = state.intervalSecPart;
@@ -2270,6 +2435,7 @@ function updateIntervalState(){
     state.themaRemaining = state.intervalSec;
     updateThemaDisplay();
   }
+  pushMpState();
 }
 el.minMinus.addEventListener('click', () => { state.intervalMin = Math.max(0, state.intervalMin - 1); updateIntervalState(); });
 el.minPlus.addEventListener('click', () => { state.intervalMin = Math.min(30, state.intervalMin + 1); updateIntervalState(); });
@@ -2416,10 +2582,37 @@ el.posChips.forEach(chip => {
 });
 
 /* ---- Eigene Themen (Thema-Modus) ---- */
+// Grenzen passen zu database.rules.json (sessions/$code/state/topics), damit eine geteilte
+// Themenliste im Multiplayer nie an den Datenbankregeln scheitert.
+const TOPIC_MAX_LEN = 120;
+const TOPIC_MAX_COUNT = 200;
+function cleanTopics(list){
+  const arr = Array.isArray(list) ? list : (list && typeof list === 'object' ? Object.values(list) : []);
+  const out = [];
+  const seen = new Set();
+  for (const t of arr){
+    if (typeof t !== 'string') continue;
+    const v = t.trim().slice(0, TOPIC_MAX_LEN).trim();
+    if (!v || seen.has(v.toLowerCase())) continue;
+    seen.add(v.toLowerCase());
+    out.push(v);
+    if (out.length >= TOPIC_MAX_COUNT) break;
+  }
+  return out;
+}
+// Im Multiplayer gilt die gemeinsame Themenliste der Session (state.mp.topics), sonst die
+// eigene, lokal gespeicherte. So überschreibt eine Session nie die eigenen Themen.
+function activeTopics(){
+  return state.mp.active ? state.mp.topics : state.customTopics;
+}
+function topicsChanged(){
+  if (state.mp.active) pushMpState(); else saveCustomTopics();
+  renderTopicsList();
+}
 function loadCustomTopics(){
   try {
     const raw = localStorage.getItem('rapcouch_topics');
-    if (raw) state.customTopics = JSON.parse(raw);
+    if (raw) state.customTopics = cleanTopics(JSON.parse(raw));
     const srcRaw = localStorage.getItem('rapcouch_thema_source');
     if (srcRaw === 'words' || srcRaw === 'situations' || srcRaw === 'custom'){
       state.themaSource = srcRaw;
@@ -2435,7 +2628,8 @@ function saveCustomTopics(){
 
 function renderTopicsList(){
   el.topicsList.innerHTML = '';
-  state.customTopics.forEach((t, i) => {
+  const topics = activeTopics();
+  topics.forEach((t, i) => {
     const chip = document.createElement('div');
     chip.className = 'chip active';
     chip.style.cursor = 'default';
@@ -2448,15 +2642,16 @@ function renderTopicsList(){
     rm.className = 'topicRemove';
     rm.textContent = '×';
     rm.addEventListener('click', () => {
-      state.customTopics.splice(i, 1);
-      renderTopicsList();
-      saveCustomTopics();
+      topics.splice(i, 1);
+      topicsChanged();
     });
     chip.appendChild(rm);
 
     el.topicsList.appendChild(chip);
   });
-  el.topicsInfo.textContent = `${state.customTopics.length} eigene Themen`;
+  el.topicsInfo.textContent = state.mp.active
+    ? `${topics.length} gemeinsame Themen (Multiplayer-Session)`
+    : `${topics.length} eigene Themen`;
   refreshNextWord();
 }
 
@@ -2470,18 +2665,18 @@ el.topicsOverlay.addEventListener('click', (e) => {
 
 el.topicsAdd.addEventListener('click', () => {
   const raw = el.topicsInput.value;
-  const parts = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  const parts = raw.split(/[\n,]+/).map(s => s.trim().slice(0, TOPIC_MAX_LEN).trim()).filter(Boolean);
   if (!parts.length) return;
-  const existingLower = new Set(state.customTopics.map(t => t.toLowerCase()));
+  const topics = activeTopics();
+  const existingLower = new Set(topics.map(t => t.toLowerCase()));
   parts.forEach(p => {
-    if (!existingLower.has(p.toLowerCase())){
-      state.customTopics.push(p);
+    if (topics.length < TOPIC_MAX_COUNT && !existingLower.has(p.toLowerCase())){
+      topics.push(p);
       existingLower.add(p.toLowerCase());
     }
   });
   el.topicsInput.value = '';
-  renderTopicsList();
-  saveCustomTopics();
+  topicsChanged();
 });
 
 const THEMA_SOURCE_HINTS = {
@@ -2497,6 +2692,7 @@ el.themaSourceChips.forEach(chip => {
     el.themaSourceHint.textContent = THEMA_SOURCE_HINTS[state.themaSource] || '';
     saveCustomTopics();
     refreshNextWord();
+    pushMpState();
   });
 });
 
@@ -2551,8 +2747,14 @@ function applyMpWordAt(index){
   setTimeout(() => el.word.classList.remove('hit'), 180);
 }
 
+const MP_MODES = ['takt', 'thema', 'kategorie', 'bag'];
+const MP_COMPLEXITIES = ['alle', 'einfach', 'mittel', 'schwer'];
+const MP_THEMA_SOURCES = ['words', 'situations', 'custom'];
+
 function pushMpState(){
-  if (!state.mp.available || !state.mp.ref || state.mp.applyingRemote) return;
+  if (!state.mp.available || !state.mp.ref || !state.mp.active || state.mp.applyingRemote) return;
+  // Leere Arrays und null löscht Firebase – genau so kommt "nichts ausgewählt" bei den anderen an
+  // (applyRemoteSnapshot behandelt ein fehlendes Feld als "leer").
   state.mp.ref.update({
     mode: state.mode,
     bpm: state.bpm,
@@ -2562,119 +2764,187 @@ function pushMpState(){
     complexity: state.complexity,
     posSet: Array.from(state.posSet),
     activeCategory: state.activeCategory,
+    themaSource: state.themaSource,
+    topics: cleanTopics(state.mp.topics),
+    intervalSec: state.intervalSec,
     playing: state.playing,
     seed: state.mp.seed,
     startedAt: state.mp.startedAt,
+  }).catch((err) => {
+    console.warn('[rapcouch] Multiplayer-Update abgelehnt:', err);
+    el.mpStatus.textContent = 'Änderung konnte nicht synchronisiert werden (' + ((err && err.message) || err) + ').';
+    el.mpStatus.classList.remove('live');
   });
 }
 
 function applyRemoteSnapshot(data){
   if (!data) return;
   state.mp.applyingRemote = true;
+  try {
+    if (typeof data.seed === 'string' && data.seed) state.mp.seed = data.seed;
+    state.mp.startedAt = typeof data.startedAt === 'number' ? data.startedAt : null;
+    state.mp.lastWordChangeNumber = null;
+    state.mp.lastBeat = null;
 
-  if (data.seed) state.mp.seed = data.seed;
-  state.mp.startedAt = data.startedAt || null;
-  state.mp.lastWordChangeNumber = null;
+    if (MP_MODES.includes(data.mode) && data.mode !== state.mode) setMode(data.mode);
+    if (typeof data.bpm === 'number') setBpm(Math.round(data.bpm));
 
-  if (data.mode && data.mode !== state.mode) setMode(data.mode);
-  if (typeof data.bpm === 'number') setBpm(data.bpm);
-
-  if (typeof data.lenMin === 'number'){
-    state.lenMin = data.lenMin; el.lenMin.value = data.lenMin;
-  }
-  if (typeof data.lenMax === 'number'){
-    state.lenMax = data.lenMax; el.lenMax.value = data.lenMax;
-  }
-  updateLenLabel();
-  if (data.complexity){
-    state.complexity = data.complexity;
-    el.complexityChips.forEach(c => c.classList.toggle('active', c.dataset.c === data.complexity));
-  }
-  if (Array.isArray(data.posSet)){
-    state.posSet = new Set(data.posSet);
+    if (typeof data.lenMin === 'number'){
+      state.lenMin = data.lenMin; el.lenMin.value = data.lenMin;
+    }
+    if (typeof data.lenMax === 'number'){
+      state.lenMax = data.lenMax; el.lenMax.value = data.lenMax;
+    }
+    updateLenLabel();
+    if (MP_COMPLEXITIES.includes(data.complexity)){
+      state.complexity = data.complexity;
+      el.complexityChips.forEach(c => c.classList.toggle('active', c.dataset.c === data.complexity));
+    }
+    // Fehlt posSet, hat jemand den Wortart-Filter geleert -> auch hier leeren.
+    const pos = Array.isArray(data.posSet) ? data.posSet : (data.posSet && typeof data.posSet === 'object' ? Object.values(data.posSet) : []);
+    state.posSet = new Set(pos.filter(p => typeof p === 'string' && /^[a-z]$/.test(p)));
     updatePosChipsUI();
-  }
-  if (data.activeCategory){
-    state.activeCategory = data.activeCategory;
-    document.querySelectorAll('#categoryChips .chip').forEach(c =>
-      c.classList.toggle('active', c.dataset.cat === data.activeCategory));
-  }
-  rebuildPools();
+    if (typeof data.activeCategory === 'string' && Object.prototype.hasOwnProperty.call(CATEGORY_DATA.labels, data.activeCategory)){
+      state.activeCategory = data.activeCategory;
+      document.querySelectorAll('#categoryChips .chip').forEach(c =>
+        c.classList.toggle('active', c.dataset.cat === data.activeCategory));
+    }
+    if (MP_THEMA_SOURCES.includes(data.themaSource)){
+      state.themaSource = data.themaSource;
+      el.themaSourceChips.forEach(c => c.classList.toggle('active', c.dataset.src === state.themaSource));
+      el.themaSourceHint.textContent = THEMA_SOURCE_HINTS[state.themaSource] || '';
+    }
+    state.mp.topics = cleanTopics(data.topics);
+    renderTopicsList();
+    if (typeof data.intervalSec === 'number'){
+      const v = Math.max(5, Math.min(30 * 60 + 59, Math.round(data.intervalSec)));
+      if (v !== state.intervalSec){
+        state.intervalMin = Math.floor(v / 60);
+        state.intervalSecPart = v % 60;
+        updateIntervalState();
+      }
+    }
+    rebuildPools();
 
-  const turnChip = Array.from(el.turnChips).find(c => parseInt(c.dataset.bars, 10) === (data.turnBars || 0));
-  if (turnChip) turnChip.click();
+    const turnChip = Array.from(el.turnChips).find(c => parseInt(c.dataset.bars, 10) === (data.turnBars || 0));
+    if (turnChip) turnChip.click();
 
-  if (typeof data.playing === 'boolean' && data.playing !== state.playing){
-    setPlaying(data.playing);
+    if (typeof data.playing === 'boolean' && data.playing !== state.playing){
+      setPlaying(data.playing);
+    }
+
+    state.mp.active = true;
+  } finally {
+    state.mp.applyingRemote = false;
   }
-
-  state.mp.active = true;
-  state.mp.applyingRemote = false;
 }
 
 function detachSession(){
   if (state.mp.ref) state.mp.ref.off();
-  if (state.mp.presenceRef) state.mp.presenceRef.remove().catch(() => {});
+  if (state.mp.presenceListRef && state.mp.presenceListener) state.mp.presenceListRef.off('value', state.mp.presenceListener);
+  if (state.mp.offsetRef && state.mp.offsetListener) state.mp.offsetRef.off('value', state.mp.offsetListener);
+  if (state.mp.presenceRef){
+    state.mp.presenceRef.onDisconnect().cancel().catch(() => {});
+    state.mp.presenceRef.remove().catch(() => {});
+  }
   state.mp.ref = null;
   state.mp.presenceRef = null;
+  state.mp.presenceListRef = null;
+  state.mp.presenceListener = null;
+  state.mp.offsetRef = null;
+  state.mp.offsetListener = null;
   state.mp.active = false;
+  state.mp.lastWordChangeNumber = null;
+  state.mp.lastBeat = null;
 }
 
-function joinSession(sessionId){
-  if (!state.mp.available) return;
+// initialTopics: nur beim Anlegen einer neuen Session (eigene Themen als Startliste).
+// Beim Beitritt zu einer bestehenden Session kommen die gemeinsamen Themen aus der Datenbank.
+function joinSession(sessionId, initialTopics){
+  if (!state.mp.available) return false;
+  if (!mpAllowed()){ mpRenderAuth(); openMpPanel(); return false; }
+  if (!/^[A-Za-z0-9_-]{3,16}$/.test(sessionId)){
+    el.mpStatus.textContent = 'Ungültiger Session-Code (3–16 Zeichen: Buchstaben, Ziffern, - oder _).';
+    return false;
+  }
   detachSession();
   state.mp.sessionId = sessionId;
   state.mp.seed = state.mp.seed || generateSeed(); // Fallback, falls noch niemand die Session gestartet hat
+  state.mp.topics = cleanTopics(initialTopics || []);
+  el.mpBtn.classList.add('active');
   el.mpSessionCodeText.textContent = sessionId;
-  el.mpConnectedInfo.style.display = '';
-  el.mpJoinOptions.style.display = 'none';
   el.mpStatus.textContent = 'Verbinde...';
   el.mpStatus.classList.remove('live');
 
   const db = firebase.database();
+  // Serverzeit-Offset für die gemeinsame Uhr (mpNow).
+  state.mp.offsetRef = db.ref('.info/serverTimeOffset');
+  state.mp.offsetListener = (snap) => { audienceServerOffset = Number(snap.val()) || 0; };
+  state.mp.offsetRef.on('value', state.mp.offsetListener);
+
   const ref = db.ref('sessions/' + sessionId + '/state');
   state.mp.ref = ref;
+  mpRenderAuth();
 
   ref.on('value', (snap) => {
+    if (state.mp.ref !== ref) return;
     const data = snap.val();
+    const firstSnapshot = !state.mp.active;
     state.mp.active = true;
     if (data){
       applyRemoteSnapshot(data);
     }
-    el.mpStatus.textContent = 'Verbunden – live synchronisiert';
-    el.mpStatus.classList.add('live');
-  }, () => {
-    el.mpStatus.textContent = 'Verbindung fehlgeschlagen.';
-    el.mpStatus.classList.remove('live');
+    if (firstSnapshot){
+      renderTopicsList();
+      el.mpStatus.textContent = 'Verbunden – live synchronisiert';
+      el.mpStatus.classList.add('live');
+      // Neue oder noch leere Session: mit dem eigenen Setup anlegen.
+      if (state.mp.pendingInitialPush || !data){
+        state.mp.pendingInitialPush = false;
+        if (state.playing && !state.mp.startedAt) state.mp.startedAt = mpNow();
+        pushMpState();
+      }
+    }
+  }, (err) => {
+    if (state.mp.ref !== ref) return;
+    leaveSession();
+    el.mpStatus.textContent = 'Verbindung fehlgeschlagen (' + ((err && err.message) || err) + '). Bist du angemeldet und ist deine E-Mail bestätigt?';
   });
 
-  // Presence: einfacher Live-Zähler, entfernt sich selbst bei Verbindungsabbruch
+  // Presence: einfacher Live-Zähler, entfernt sich selbst bei Verbindungsabbruch.
+  // Der Schlüssel beginnt mit der eigenen UID – die Datenbankregeln erlauben nur den eigenen Eintrag.
   const presenceListRef = db.ref('sessions/' + sessionId + '/presence');
-  const myPresenceRef = presenceListRef.push();
+  const uid = firebase.auth().currentUser.uid;
+  const myPresenceRef = presenceListRef.child(uid + '_' + presenceListRef.push().key);
   state.mp.presenceRef = myPresenceRef;
-  myPresenceRef.onDisconnect().remove();
-  myPresenceRef.set(true);
-  presenceListRef.on('value', (snap) => {
+  state.mp.presenceListRef = presenceListRef;
+  myPresenceRef.onDisconnect().remove().catch(() => {});
+  myPresenceRef.set(true).catch(() => {});
+  state.mp.presenceListener = (snap) => {
     const count = snap.exists() ? Object.keys(snap.val()).length : 0;
     el.mpUserCount.textContent = `${count} Gerät${count === 1 ? '' : 'e'} verbunden`;
-  });
+  };
+  presenceListRef.on('value', state.mp.presenceListener, () => {});
+  return true;
 }
 
 function leaveSession(){
   detachSession();
-  el.mpConnectedInfo.style.display = 'none';
-  el.mpJoinOptions.style.display = '';
+  state.mp.pendingInitialPush = false;
+  renderTopicsList();
+  mpRenderAuth();
   el.mpStatus.textContent = 'Nicht verbunden – volle lokale Kontrolle.';
+  el.mpStatus.classList.remove('live');
   el.mpBtn.classList.remove('active');
 }
 
 function createNewSession(){
   if (!state.mp.available) return;
+  if (!mpAllowed()){ mpRenderAuth(); return; }
   const code = generateSessionCode();
   state.mp.seed = generateSeed();
-  joinSession(code);
-  // Initialzustand direkt mit dem aktuellen lokalen Setup anlegen
-  setTimeout(() => pushMpState(), 300);
+  // Initialzustand mit dem aktuellen lokalen Setup anlegen, sobald die (leere) Session geladen ist.
+  if (joinSession(code, state.customTopics)) state.mp.pendingInitialPush = true;
 }
 
 function initMultiplayer(){
@@ -2693,12 +2963,153 @@ function initMultiplayer(){
     el.mpBody.style.display = '';
     // Kein Auto-Beitritt: Solo-Nutzer bleiben unberührt, bis sie sich
     // bewusst für Multiplayer entscheiden.
+    firebase.auth().onAuthStateChanged(mpOnAuth);
+    mpRenderAuth();
   } catch (e){
     state.mp.available = false;
     el.mpUnavailable.style.display = '';
     el.mpBody.style.display = 'none';
   }
 }
+
+/* ---- Multiplayer-Konto ----
+   Die Datenbankregeln lassen nur angemeldete Konten mit bestätigter E-Mail-Adresse (oder aktive
+   ModeratorInnen/Admins) in eine Session. Anmeldung/Registrierung passiert deshalb direkt im
+   Multiplayer-Fenster. Bestätigte Konten werden einmalig unter registrations/<uid> eingetragen,
+   damit die Administration sieht, wer sich registriert hat. */
+const mpAuth = { user: null, staff: false };
+function mpAllowed(){
+  return !!(mpAuth.user && (mpAuth.user.emailVerified || mpAuth.staff));
+}
+function mpAuthMessage(t){ el.mpAuthMessage.textContent = t || ''; }
+function mpAuthErrorText(e){
+  const code = (e && e.code) || '';
+  const map = {
+    'auth/invalid-credential': 'E-Mail-Adresse oder Passwort ist falsch.',
+    'auth/invalid-login-credentials': 'E-Mail-Adresse oder Passwort ist falsch.',
+    'auth/wrong-password': 'E-Mail-Adresse oder Passwort ist falsch.',
+    'auth/user-not-found': 'E-Mail-Adresse oder Passwort ist falsch.',
+    'auth/invalid-email': 'Die E-Mail-Adresse ist ungültig.',
+    'auth/missing-email': 'Bitte eine E-Mail-Adresse eingeben.',
+    'auth/email-already-in-use': 'Für diese E-Mail-Adresse gibt es schon ein Konto. Bitte anmelden.',
+    'auth/weak-password': 'Das Passwort ist zu kurz (mindestens 6 Zeichen).',
+    'auth/missing-password': 'Bitte ein Passwort eingeben.',
+    'auth/too-many-requests': 'Zu viele Versuche. Bitte kurz warten.',
+    'auth/network-request-failed': 'Keine Verbindung. Bitte Internet prüfen.',
+    'auth/operation-not-allowed': 'Anmeldung per E-Mail ist in Firebase nicht aktiviert.',
+    'auth/user-disabled': 'Dieses Konto ist gesperrt.',
+  };
+  return map[code] || ((e && e.message) || String(e));
+}
+async function mpEnsureRegistration(user){
+  try {
+    if (!user || !user.emailVerified || !user.email) return;
+    const ref = firebase.database().ref('registrations/' + user.uid);
+    if ((await ref.once('value')).exists()) return;
+    const name = ((user.displayName || '').trim() || user.email.split('@')[0]).slice(0, 60);
+    if (name.length < 2) return;
+    await ref.set({ email: user.email, displayName: name, createdAt: firebase.database.ServerValue.TIMESTAMP });
+  } catch (e){
+    console.warn('[rapcouch] Registrierung konnte nicht eingetragen werden:', e);
+  }
+}
+async function mpOnAuth(user){
+  mpAuth.user = user;
+  mpAuth.staff = false;
+  if (!user){
+    if (state.mp.ref){
+      leaveSession();
+      el.mpStatus.textContent = 'Abgemeldet – Multiplayer beendet.';
+    }
+    mpRenderAuth();
+    return;
+  }
+  if (user.emailVerified){
+    mpEnsureRegistration(user);
+  } else {
+    // Aktive ModeratorInnen/Admins dürfen auch ohne bestätigte E-Mail in Sessions (siehe Regeln).
+    try {
+      const v = (await firebase.database().ref('staff/' + user.uid).once('value')).val();
+      if (mpAuth.user === user) mpAuth.staff = !!(v && v.active === true && (v.role === 'moderator' || v.role === 'admin'));
+    } catch (e){ /* kein Staff-Eintrag lesbar -> normales Konto */ }
+  }
+  if (mpAuth.user !== user) return; // inzwischen ab-/umgemeldet
+  mpRenderAuth();
+}
+function mpRenderAuth(){
+  if (!state.mp.available) return;
+  const u = mpAuth.user;
+  const ok = mpAllowed();
+  const connected = !!state.mp.ref;
+  el.mpAuthBox.style.display = ok ? 'none' : '';
+  el.mpLoginForm.style.display = u ? 'none' : '';
+  el.mpVerifyBox.style.display = (u && !ok) ? '' : 'none';
+  if (u && !ok) el.mpVerifyText.textContent = `Bitte bestätige zuerst deine E-Mail-Adresse über den Link, den wir an ${u.email} geschickt haben. Danach hier auf „Ich habe bestätigt“ tippen.`;
+  el.mpAccountRow.style.display = u ? '' : 'none';
+  el.mpAccountText.textContent = u ? 'Angemeldet als ' + (u.displayName || u.email) : '';
+  el.mpJoinOptions.style.display = (ok && !connected) ? '' : 'none';
+  el.mpConnectedInfo.style.display = connected ? '' : 'none';
+}
+function mpBusy(btn, busy){ btn.style.pointerEvents = busy ? 'none' : ''; btn.style.opacity = busy ? '0.5' : ''; }
+
+el.mpLoginBtn.addEventListener('click', async () => {
+  mpAuthMessage('');
+  mpBusy(el.mpLoginBtn, true);
+  try { await firebase.auth().signInWithEmailAndPassword(el.mpEmail.value.trim(), el.mpPassword.value); el.mpPassword.value = ''; }
+  catch (e){ mpAuthMessage(mpAuthErrorText(e)); }
+  finally { mpBusy(el.mpLoginBtn, false); }
+});
+el.mpRegisterBtn.addEventListener('click', async () => {
+  mpAuthMessage('');
+  const name = el.mpName.value.trim();
+  const email = el.mpEmail.value.trim();
+  const pw = el.mpPassword.value;
+  if (name.length < 2){ mpAuthMessage('Bitte einen Namen mit mindestens 2 Zeichen eingeben (Feld „Name“).'); return; }
+  if (!email){ mpAuthMessage('Bitte eine E-Mail-Adresse eingeben.'); return; }
+  if (pw.length < 6){ mpAuthMessage('Das Passwort muss mindestens 6 Zeichen haben.'); return; }
+  mpBusy(el.mpRegisterBtn, true);
+  try {
+    const cred = await firebase.auth().createUserWithEmailAndPassword(email, pw);
+    el.mpPassword.value = '';
+    try { await cred.user.updateProfile({ displayName: name.slice(0, 60) }); } catch (e){}
+    try { await cred.user.sendEmailVerification(); }
+    catch (e){ mpAuthMessage('Konto angelegt, aber die Bestätigungs-Mail konnte nicht gesendet werden: ' + mpAuthErrorText(e)); }
+    mpRenderAuth();
+  } catch (e){ mpAuthMessage(mpAuthErrorText(e)); }
+  finally { mpBusy(el.mpRegisterBtn, false); }
+});
+el.mpResetBtn.addEventListener('click', async () => {
+  const email = el.mpEmail.value.trim();
+  if (!email){ mpAuthMessage('Bitte oben die E-Mail-Adresse eintragen.'); return; }
+  try { await firebase.auth().sendPasswordResetEmail(email); mpAuthMessage('Falls es ein Konto gibt, ist eine E-Mail zum Zurücksetzen unterwegs.'); }
+  catch (e){ mpAuthMessage(mpAuthErrorText(e)); }
+});
+el.mpVerifiedBtn.addEventListener('click', async () => {
+  const user = firebase.auth().currentUser;
+  if (!user) return;
+  mpAuthMessage('');
+  mpBusy(el.mpVerifiedBtn, true);
+  try {
+    await user.reload();
+    const u = firebase.auth().currentUser;
+    if (u && u.emailVerified){
+      await u.getIdToken(true); // neues Token mit email_verified=true, sonst lehnen die Regeln noch ab
+      mpAuth.user = u;
+      await mpEnsureRegistration(u);
+      mpRenderAuth();
+    } else {
+      mpAuthMessage('Noch nicht bestätigt. Bitte den Link in der E-Mail öffnen (auch im Spam-Ordner nachsehen).');
+    }
+  } catch (e){ mpAuthMessage(mpAuthErrorText(e)); }
+  finally { mpBusy(el.mpVerifiedBtn, false); }
+});
+el.mpResendBtn.addEventListener('click', async () => {
+  const user = firebase.auth().currentUser;
+  if (!user) return;
+  try { await user.sendEmailVerification(); mpAuthMessage('Bestätigungs-Mail wurde erneut gesendet.'); }
+  catch (e){ mpAuthMessage(mpAuthErrorText(e)); }
+});
+el.mpLogoutBtn.addEventListener('click', () => { appSignOut(); });
 
 /* ---- Multiplayer UI ---- */
 function openMpPanel(){ el.mpOverlay.classList.add('open'); }
@@ -2709,18 +3120,14 @@ el.mpOverlay.addEventListener('click', (e) => { if (e.target === el.mpOverlay) c
 
 el.mpJoinPublicBtn.addEventListener('click', () => {
   joinSession('public');
-  el.mpBtn.classList.add('active');
 });
 el.mpCreateBtn.addEventListener('click', () => {
   createNewSession();
-  el.mpBtn.classList.add('active');
 });
 el.mpJoinBtn.addEventListener('click', () => {
   const code = el.mpJoinInput.value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
   if (!code) return;
-  joinSession(code);
-  el.mpBtn.classList.add('active');
-  el.mpJoinInput.value = '';
+  if (joinSession(code)) el.mpJoinInput.value = '';
 });
 el.mpLeaveBtn.addEventListener('click', () => {
   leaveSession();
@@ -2848,8 +3255,11 @@ function audOnSuggestion(snap){
   const w = audienceNormalizeWord(v.w);
   const tooOld = v.t && (audienceNow() - v.t > AUDIENCE_CONFIG.maxAgeHours * 3600000);
   if (!w || tooOld || audIsDuplicate(w)){ aud.stats.dropped++; remove(); audRender(); return; }
+  // Gesperrte Wörter (audience-config.js) laufen nie automatisch durch – auch nicht, wenn sie in
+  // der eigenen Wortliste stehen. Mit Mod-Gerät entscheidet dort ein Mensch, sonst wird verworfen.
+  const blocked = audienceIsBlocked(w);
   const canon = audKnown().get(w.toLowerCase());
-  if (canon){ aud.stats.auto++; remove(); audEnqueue(canon); return; }
+  if (canon && !blocked){ aud.stats.auto++; remove(); audEnqueue(canon); return; }
   if (aud.moderation === 'known'){ aud.stats.dropped++; remove(); audRender(); return; }
   // moderation === 'mod': bleibt in der Datenbank, bis das Mod-Gerät entscheidet.
   audRender();
@@ -2934,6 +3344,13 @@ function audRender(){
   const available = !!audDb();
   $aud('audUnavailable').style.display = configured ? 'none' : '';
   $aud('audAuthBox').style.display = configured && !aud.staffAuthorized ? '' : 'none';
+  const signedIn = configured && !aud.staffAuthorized && !!firebase.auth().currentUser;
+  $aud('audLoginForm').style.display = signedIn ? 'none' : '';
+  $aud('audSignedInBox').style.display = signedIn ? '' : 'none';
+  if (signedIn){
+    const u = firebase.auth().currentUser;
+    $aud('audSignedInText').textContent = 'Angemeldet als ' + (u.displayName || u.email || 'Gast') + ' – dieses Konto hat keine Moderationsberechtigung.';
+  }
   $aud('audBody').style.display = available ? '' : 'none';
   $aud('audOpenToggle').checked = aud.open;
   $aud('audBtn').classList.toggle('active', aud.open);
@@ -3000,6 +3417,23 @@ function audInviteOpen(){ return $aud('inviteOverlay').classList.contains('open'
 function audOpenPanel(){ audRender(); $aud('audOverlay').classList.add('open'); }
 function audClosePanel(){ $aud('audOverlay').classList.remove('open'); }
 
+// Gemeinsames Abmelden für Publikum- und Multiplayer-Fenster (dasselbe Firebase-Konto).
+// Waren Einreichungen offen, werden sie vorher geschlossen – danach hätte niemand mehr die
+// Berechtigung dazu.
+async function appSignOut(){
+  audStopKeepOpen();
+  if (aud.staffAuthorized && aud.open){
+    try {
+      const openRef = firebase.database().ref(audBase() + '/open');
+      await openRef.onDisconnect().cancel();
+      await openRef.set(false);
+    } catch (e){}
+  }
+  aud.open = false;
+  audDetach();
+  try { await firebase.auth().signOut(); } catch (e){}
+}
+
 function audCopy(text, btn){
   const done = () => { const t = btn.textContent; btn.textContent = 'Kopiert ✓'; setTimeout(() => { btn.textContent = t; }, 1200); };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(() => {});
@@ -3021,14 +3455,8 @@ function audInit(){
     try { await firebase.auth().signInWithEmailAndPassword($aud('audLoginEmail').value.trim(), $aud('audLoginPassword').value); }
     catch (e) { $aud('audLoginMessage').textContent = 'Anmeldung fehlgeschlagen: ' + (e.message || e); }
   });
-  $aud('audLogoutBtn').addEventListener('click', async () => {
-    audStopKeepOpen();
-    if (aud.staffAuthorized && aud.open) {
-      try { await firebase.database().ref(audBase() + '/open').set(false); } catch (e) {}
-    }
-    aud.open = false;
-    await firebase.auth().signOut();
-  });
+  $aud('audLogoutBtn').addEventListener('click', () => { appSignOut(); });
+  $aud('audSignedInLogout').addEventListener('click', () => { appSignOut(); });
   // Ohne geladenes/initialisiertes Firebase (z. B. kein Internet) bleibt der Rest der Seite voll nutzbar.
   if (state.mp.available && typeof firebase !== 'undefined') firebase.auth().onAuthStateChanged(async user => {
     audStopKeepOpen();
@@ -3042,8 +3470,9 @@ function audInit(){
           $aud('audIdentity').textContent = (person.displayName || user.email) + ' · ' + person.role;
           aud.open = (await firebase.database().ref(audBase() + '/open').once('value')).val() === true;
         } else {
-          $aud('audLoginMessage').textContent = 'Dieser Account hat keine aktive Moderationsberechtigung.';
-          await firebase.auth().signOut();
+          // Kein Moderationskonto: angemeldet bleiben (z. B. für den Multiplayer), aber keine
+          // Publikumsfunktionen. audRender zeigt das im Publikum-Fenster an.
+          $aud('audLoginMessage').textContent = '';
         }
       } catch (e) { $aud('audLoginMessage').textContent = 'Berechtigung konnte nicht geprüft werden: ' + e.message; }
     }

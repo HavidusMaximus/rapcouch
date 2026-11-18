@@ -53,35 +53,37 @@
     </div>
     <div id="msg" role="status" aria-live="polite"></div>
     <div id="conn">VERBINDE …</div>
-    <div class="fine">Nur ein Wort aus Buchstaben (2–24 Zeichen). Die Moderation entscheidet, ob und wann es erscheint. Es werden keine persönlichen Daten gespeichert.</div>
+    <div class="fine">Nur ein Wort aus Buchstaben (2–24 Zeichen). Die Moderation entscheidet, ob und wann es erscheint. Es werden keine persönlichen Daten gespeichert, nur eine zufällige Geräte-Kennung gegen Spam.</div>
   </main>
 
 <!-- Bewusst KEIN Firebase-SDK: Die Seite spricht die Datenbank per einfacher REST-Anfrage an.
      So hält kein Handy eine dauerhafte Verbindung offen (der kostenlose Firebase-Tarif erlaubt nur
-     100 gleichzeitige Verbindungen), und die Seite lädt auf dem Handy deutlich schneller. -->
+     100 gleichzeitige Verbindungen), und die Seite lädt auf dem Handy deutlich schneller.
+     Zum Einreichen meldet sich das Handy einmalig ANONYM bei Firebase an (ebenfalls per REST, ohne
+     Konto und ohne persönliche Daten). Damit kann die Datenbank pro Handy eine Wartezeit erzwingen
+     (siehe database.rules.json, Knoten audience/<event>/rate) – die Wartezeit im Browser allein
+     ließe sich mit einem Skript einfach umgehen.
+     Voraussetzung: In der Firebase Console unter Authentication → Anmeldemethode ist
+     "Anonym" aktiviert. -->
 <script src="firebase-config.js"></script>
 <script src="audience-config.js"></script>
 <script>
 (function(){
-  const COOLDOWN_MS = 20000;          // Mindestabstand zwischen zwei Einreichungen pro Handy
-  const MAX_PER_10_MIN = 6;           // und Obergrenze pro 10 Minuten
+  const COOLDOWN_MS = 20000;          // Mindestabstand zwischen zwei Einreichungen pro Handy (wird auch serverseitig erzwungen)
+  const MAX_PER_10_MIN = 6;           // und Obergrenze pro 10 Minuten (nur im Browser)
   const POLL_MS = 10000;              // wie oft nachgesehen wird, ob Einreichungen offen sind
+  const TOKEN_KEY = 'rc-anon';
   const $ = (id) => document.getElementById(id);
   const msg = (t, cls) => { $('msg').textContent = t || ''; $('msg').className = cls || ''; };
 
   const event = audienceEventFromUrl();
-  const DB = ((typeof FIREBASE_CONFIG !== 'undefined' && FIREBASE_CONFIG.databaseURL) || '').replace(/\/$/, '');
+  const CFG = (typeof FIREBASE_CONFIG !== 'undefined') ? FIREBASE_CONFIG : {};
+  const DB = (CFG.databaseURL || '').replace(/\/$/, '');
+  const API_KEY = CFG.apiKey || '';
   const base = DB + '/audience/' + event;
   let isOpen = false;
   let online = false;
 
-  function deviceId(){
-    try {
-      let d = localStorage.getItem('rc-device');
-      if (!d){ d = Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4); localStorage.setItem('rc-device', d); }
-      return d;
-    } catch (e){ return 'anon' + Math.random().toString(36).slice(2, 8); }
-  }
   function recentSubmits(){
     try { return JSON.parse(localStorage.getItem('rc-subs') || '[]').filter(t => Date.now() - t < 600000); } catch (e){ return []; }
   }
@@ -103,6 +105,49 @@
     finally { clearTimeout(t); }
   }
 
+  /* ---- Anonyme Anmeldung (REST, ohne SDK) ---- */
+  let memToken = null;   // Fallback, falls localStorage nicht verfügbar ist
+  function loadToken(){
+    try { const t = JSON.parse(localStorage.getItem(TOKEN_KEY) || 'null'); if (t && t.uid && t.idToken && t.refreshToken) return t; } catch (e){}
+    return memToken;
+  }
+  function storeToken(t){
+    memToken = t;
+    try { if (t) localStorage.setItem(TOKEN_KEY, JSON.stringify(t)); else localStorage.removeItem(TOKEN_KEY); } catch (e){}
+  }
+  class AuthError extends Error {}
+  async function signUpAnon(){
+    const r = await req('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + encodeURIComponent(API_KEY), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ returnSecureToken: true })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.idToken) throw new AuthError((j.error && j.error.message) || ('HTTP ' + r.status));
+    const t = { uid: j.localId, idToken: j.idToken, refreshToken: j.refreshToken, exp: Date.now() + (Number(j.expiresIn) || 3600) * 1000 };
+    storeToken(t);
+    return t;
+  }
+  async function refreshAnon(old){
+    const r = await req('https://securetoken.googleapis.com/v1/token?key=' + encodeURIComponent(API_KEY), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(old.refreshToken)
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.id_token) return null;
+    const t = { uid: j.user_id || old.uid, idToken: j.id_token, refreshToken: j.refresh_token || old.refreshToken, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000 };
+    storeToken(t);
+    return t;
+  }
+  // Liefert ein gültiges Token. force=true erneuert es auch dann, wenn es laut Ablaufzeit noch gilt.
+  async function anonToken(force){
+    const t = loadToken();
+    if (t && !force && t.exp - Date.now() > 5 * 60000) return t;
+    if (t){ const fresh = await refreshAnon(t); if (fresh) return fresh; }
+    return signUpAnon();
+  }
+
   async function checkOpen(){
     try {
       const r = await req(base + '/open.json');
@@ -114,9 +159,9 @@
     return isOpen;
   }
 
-  if (!DB){
+  if (!DB || !API_KEY){
     $('conn').textContent = 'NICHT KONFIGURIERT';
-    msg('Die Seite ist nicht eingerichtet (Datenbank-Adresse fehlt).', 'err');
+    msg('Die Seite ist nicht eingerichtet (Datenbank-Adresse oder API-Key fehlt).', 'err');
     render();
     return;
   }
@@ -129,6 +174,26 @@
   render();
   checkOpen();
   schedule();
+
+  function randomId(){
+    const b = new Uint8Array(8);
+    crypto.getRandomValues(b);
+    return Date.now().toString(36) + '-' + Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  }
+
+  // Einreichung + Zeitstempel für die Wartezeit in EINEM Schreibvorgang. Die Datenbankregeln
+  // lassen die Einreichung nur zu, wenn im selben Vorgang auch rate/<uid> auf "jetzt" gesetzt wird
+  // und die letzte Einreichung dieses Handys mindestens 20 Sekunden her ist.
+  async function postSuggestion(w, tok){
+    const body = {};
+    body['suggestions/' + randomId()] = { w: w, t: { '.sv': 'timestamp' }, d: tok.uid };
+    body['rate/' + tok.uid] = { '.sv': 'timestamp' };
+    return req(base + '.json?auth=' + encodeURIComponent(tok.idToken), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
 
   async function send(){
     msg('');
@@ -144,17 +209,31 @@
     try {
       // Direkt vor dem Absenden frisch prüfen, ob Einreichungen noch offen sind.
       if (!(await checkOpen())){ msg(online ? 'Gerade werden keine Wörter angenommen.' : 'Keine Verbindung. Versuch es gleich nochmal.', 'err'); return; }
-      const r = await req(base + '/suggestions.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ w: w, t: { '.sv': 'timestamp' }, d: deviceId() })
-      });
+      let tok = await anonToken(false);
+      let r = await postSuggestion(w, tok);
+      if (r.status === 401 || r.status === 403){
+        // Entweder ist das Token abgelaufen/ungültig oder die Regeln lehnen ab (Wartezeit,
+        // inzwischen geschlossen). Einmal mit frischem Token wiederholen, dann aufgeben.
+        tok = await anonToken(true);
+        r = await postSuggestion(w, tok);
+      }
+      if (r.status === 401 || r.status === 403){
+        const stillOpen = await checkOpen();
+        msg(stillOpen
+          ? 'Nicht angenommen – zwischen zwei Wörtern müssen mindestens 20 Sekunden liegen. Versuch es gleich nochmal.'
+          : 'Gerade werden keine Wörter angenommen.', 'err');
+        return;
+      }
       if (!r.ok) throw new Error('HTTP ' + r.status);
       remember();
       $('w').value = '';
       msg('Danke! „' + w + '“ ist eingegangen. Ob und wann es erscheint, entscheidet die Moderation.', 'ok');
     } catch (e){
-      msg('Das hat nicht geklappt (Verbindung oder Berechtigung). Versuch es gleich nochmal.', 'err');
+      if (e instanceof AuthError){
+        msg('Anmeldung bei der Datenbank nicht möglich (' + e.message + '). Bitte der Moderation Bescheid geben.', 'err');
+      } else {
+        msg('Das hat nicht geklappt (Verbindung). Versuch es gleich nochmal.', 'err');
+      }
     } finally {
       setTimeout(() => { $('send').disabled = false; }, 1500);
     }

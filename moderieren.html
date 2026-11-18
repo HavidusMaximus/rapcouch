@@ -23,6 +23,8 @@
   .item .w{flex:1;font-size:22px;font-weight:700;word-break:break-word}
   .item button{width:54px;height:44px;font-size:20px;padding:0}
   .yes{background:var(--accent);color:#090909}.no{background:#1c1c1a;color:var(--fg);border:1px solid var(--line)}
+  .item.blocked{border-color:#ff8a70}
+  .item .flag{font:10px monospace;letter-spacing:.08em;color:#ff8a70;font-weight:400;margin-top:4px}
   .empty{color:var(--dim);text-align:center;padding:28px 0;font-size:14px}
   .fine{margin-top:22px;font-size:12px;color:var(--dim);line-height:1.5}
   #app{display:none}
@@ -99,6 +101,11 @@
       const row=document.createElement('div');row.className='item';
       const w=document.createElement('div');w.className='w';w.textContent=g.w;
       if(g.ids.length>1){const n=document.createElement('span');n.textContent=' ×'+g.ids.length;n.style.cssText='font-size:14px;color:var(--dim);font-weight:400';w.appendChild(n);}
+      if(audienceIsBlocked(g.w)){
+        // Steht auf der Sperrliste (audience-config.js) – bewusst entscheiden.
+        row.classList.add('blocked');
+        const b=document.createElement('div');b.className='flag';b.textContent='⚠ STEHT AUF DER SPERRLISTE';w.appendChild(b);
+      }
       const yes=document.createElement('button');yes.className='yes';yes.textContent='✓';yes.title='Freigeben';
       const no=document.createElement('button');no.className='no';no.textContent='✗';no.title='Ablehnen';
       yes.addEventListener('click',()=>approve(g));
@@ -149,12 +156,24 @@
       const snaps=await Promise.all(g.ids.map(id=>sugRef(id).once('value')));
       const alive=g.ids.filter((id,i)=>snaps[i].exists());
       if(!alive.length){g.ids.forEach(id=>pending.delete(id));render();return;}
-      await db.ref(base+'/approved').push({
+      // Freigabe und Löschen der Einreichungen in EINEM Schreibvorgang: Die Datenbankregeln erlauben
+      // das Löschen nur für noch existierende Einträge. Hat eine andere Moderation dasselbe Wort
+      // gerade freigegeben, schlägt der ganze Vorgang fehl – das Wort erscheint also nicht doppelt.
+      const update={};
+      update['approved/'+db.ref(base+'/approved').push().key]={
         w:g.w,
         by:currentUser.uid,
         t:firebase.database.ServerValue.TIMESTAMP
-      });
-      await Promise.all(alive.map(id=>sugRef(id).remove()));
+      };
+      alive.forEach(id=>{update['suggestions/'+id]=null;});
+      try{
+        await db.ref(base).update(update);
+      }catch(e){
+        // Prüfen, ob jemand anderes schneller war – dann ist das kein Fehler.
+        const again=await Promise.all(alive.map(id=>sugRef(id).once('value')));
+        if(again.some(s=>!s.exists())){g.ids.forEach(id=>pending.delete(id));render();return;}
+        throw e;
+      }
       g.ids.forEach(id=>pending.delete(id));render();
     }catch(e){status('Freigabe fehlgeschlagen: '+(e.message||e),'err');}
   }

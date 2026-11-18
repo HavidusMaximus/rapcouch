@@ -1,0 +1,13 @@
+{
+  "name": "rapcouch",
+  "private": true,
+  "description": "Nur für Tests der Firebase-Datenbankregeln. Die Seite selbst braucht keinen Build.",
+  "scripts": {
+    "test:rules": "firebase emulators:exec --only database --project rapcouch-7d8f1 \"node --test tests/rules.test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "^10.14.1",
+    "firebase-tools": "^13.35.1"
+  }
+}
