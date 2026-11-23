@@ -171,6 +171,16 @@
           ".validate": false
         }
       }
+    },
+    "config": {
+      ".read": true,
+      "theme": {
+        ".write": "auth != null && root.child('staff').child(auth.uid).child('active').val() === true && root.child('staff').child(auth.uid).child('role').val() === 'admin'",
+        ".validate": "newData.isString() && (newData.val() === 'kontrast' || newData.val() === 'klassisch')"
+      },
+      "$other": {
+        ".validate": false
+      }
     }
   }
 }

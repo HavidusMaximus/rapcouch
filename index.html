@@ -9,14 +9,17 @@
     font-family: 'Anton';
     src: local('Anton');
   }
+  /* Standardwerte = Theme "Beamer-Kontrast". Welches Theme gilt, steuert theme.js (Admin-Schalter im Publikum-Fenster). */
   :root{
-    --bg: #0a0a0a;
-    --bg-raised: #121212;
-    --fg: #ededea;
-    --fg-dim: #6b6b68;
-    --accent: #ff4d1c;
-    --accent-dim: #5a2210;
-    --line: #232320;
+    --bg: #0E0C07;
+    --bg-raised: #1A160C;
+    --fg: #FFF8E6;
+    --fg-dim: #C9BFA3;
+    --accent: #FFC81E;
+    --accent-dim: #5C4708;
+    --accent-rgb: 255,200,30;
+    --line: #6B5F3F;
+    --danger: #FF8F7A;
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
   html,body{
@@ -141,7 +144,7 @@
     -webkit-appearance:none; appearance:none;
     width:16px; height:16px; border-radius:50%;
     background: var(--accent); cursor:pointer;
-    box-shadow: 0 0 0 4px rgba(255,77,28,0.15);
+    box-shadow: 0 0 0 4px rgba(var(--accent-rgb),0.15);
   }
   input[type=range]::-moz-range-thumb{
     width:16px; height:16px; border-radius:50%;
@@ -221,7 +224,7 @@
   }
   #word.hit{
     color: var(--accent);
-    text-shadow: 0 0 40px rgba(255,77,28,0.35);
+    text-shadow: 0 0 40px rgba(var(--accent-rgb),0.35);
   }
   #word.wrap{
     white-space: normal;
@@ -244,8 +247,8 @@
     line-height:1;
     color: var(--fg);
   }
-  #wordPrev{ opacity:0.62; }
-  #wordNext{ opacity:0.42; }
+  #wordPrev{ opacity:0.85; }
+  #wordNext{ opacity:0.7; }
   #stage.fs .wordGhost{ font-size: clamp(18px, 4.6vw, 42px); }
 
   /* ---------- bag stage (Grab the Bag: Bilder statt Wörter) ---------- */
@@ -286,8 +289,8 @@
   @keyframes bagPulse{ 0%,100%{ opacity:0.4; } 50%{ opacity:1; } }
   #bagCredit{
     font-family:'JetBrains Mono',monospace;
-    font-size:9px; letter-spacing:0.06em; color: var(--fg-dim);
-    text-align:center; opacity:0.7;
+    font-size:10px; letter-spacing:0.06em; color: var(--fg-dim);
+    text-align:center; opacity:0.9;
   }
   #bagCredit a{ color: var(--fg-dim); }
   #bagUsedInfo{
@@ -338,10 +341,10 @@
   }
   #bagProgress.lastSec #bagFill{
     background: var(--accent);
-    box-shadow: 0 0 16px 2px rgba(255,77,28,0.7);
+    box-shadow: 0 0 16px 2px rgba(var(--accent-rgb),0.7);
   }
   #bagProgress.lastSec #bagTrack{
-    box-shadow: inset 0 1px 3px rgba(0,0,0,0.4), 0 0 20px rgba(255,77,28,0.35);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.4), 0 0 20px rgba(var(--accent-rgb),0.35);
   }
 
   #statusrow{
@@ -370,7 +373,7 @@
   .dot.four.on{
     background: var(--accent);
     transform: scale(1.7);
-    box-shadow: 0 0 16px rgba(255,77,28,0.7);
+    box-shadow: 0 0 16px rgba(var(--accent-rgb),0.7);
   }
 
   /* ---------- sekunden pro schlag ---------- */
@@ -415,7 +418,7 @@
     background: var(--accent);
     padding: 8px 26px;
     border-radius: 10px;
-    box-shadow: 0 10px 34px rgba(255,77,28,0.55);
+    box-shadow: 0 10px 34px rgba(var(--accent-rgb),0.55);
     opacity:0; pointer-events:none;
     z-index: 25;
     white-space: nowrap;
@@ -437,10 +440,10 @@
   }
   #turnProgress.lastBar #turnFill{
     background: var(--accent);
-    box-shadow: 0 0 16px 2px rgba(255,77,28,0.7);
+    box-shadow: 0 0 16px 2px rgba(var(--accent-rgb),0.7);
   }
   #turnProgress.lastBar #turnTrack{
-    box-shadow: inset 0 1px 3px rgba(0,0,0,0.4), 0 0 20px rgba(255,77,28,0.35);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.4), 0 0 20px rgba(var(--accent-rgb),0.35);
   }
   @keyframes lastBarPulse{
     0%, 100%{ opacity:1; }
@@ -551,7 +554,7 @@
   }
   .chip.active{
     border-color: var(--accent); color: var(--accent);
-    background: rgba(255,77,28,0.08);
+    background: rgba(var(--accent-rgb),0.08);
   }
   #poolInfo{
     text-align:center; margin-top:16px;
@@ -696,8 +699,8 @@
   #hint{
     text-align:center;
     font-family:'JetBrains Mono',monospace;
-    font-size: 10px; letter-spacing:0.1em; color: var(--fg-dim);
-    opacity:0.6;
+    font-size: 11px; font-weight:700; letter-spacing:0.1em; color: var(--fg-dim);
+    opacity:0.9;
     padding: 0 4px;
   }
 
@@ -769,7 +772,7 @@
   /* ---------- größere Screens (Laptop/Desktop): Bedienelemente vergrößern ---------- */
   @media (min-width: 900px){
     input[type=range]{ width: 140px; height: 6px; }
-    input[type=range]::-webkit-slider-thumb{ width:22px; height:22px; box-shadow: 0 0 0 6px rgba(255,77,28,0.15); }
+    input[type=range]::-webkit-slider-thumb{ width:22px; height:22px; box-shadow: 0 0 0 6px rgba(var(--accent-rgb),0.15); }
     input[type=range]::-moz-range-thumb{ width:22px; height:22px; }
     .rangeRow input[type=range]{ width:auto; }
     .secPerBeatBlock input[type=range]{ width: 130px; }
@@ -789,6 +792,7 @@
     #bagCountdown{ font-size:28px; }
   }
 </style>
+<script src="theme.js"></script>
 </head>
 <body>
 <div id="app">
@@ -1104,6 +1108,11 @@
       <div class="filterRow" style="display:flex;justify-content:space-between;align-items:center;">
         <span class="hintSmall" id="audIdentity"></span>
         <div class="spBtnSecondaryLike" id="audLogoutBtn">Abmelden</div>
+      </div>
+      <div class="filterRow" id="themeRow" style="display:none;">
+        <div class="filterLabel"><span>DESIGN (NUR ADMIN)</span></div>
+        <div class="chipRow" id="themeChips"></div>
+        <div class="hintSmall" id="themeHint">Gilt sofort für alle Seiten und Geräte.</div>
       </div>
       <div id="audStatus">Aus – niemand kann Wörter schicken.</div>
 
@@ -3354,6 +3363,8 @@ function audRender(){
     $aud('audSignedInText').textContent = 'Angemeldet als ' + (u.displayName || u.email || 'Gast') + ' – dieses Konto hat keine Moderationsberechtigung.';
   }
   $aud('audBody').style.display = available ? '' : 'none';
+  $aud('themeRow').style.display = (aud.staffAuthorized && aud.staffRole === 'admin') ? '' : 'none';
+  themeChipsRender();
   $aud('audOpenToggle').checked = aud.open;
   $aud('audBtn').classList.toggle('active', aud.open);
   const st = $aud('audStatus');
@@ -3442,6 +3453,34 @@ function audCopy(text, btn){
   else done();
 }
 
+/* ---- Design-Schalter (nur Admin) ---- */
+function themeChipsRender(){
+  const host = $aud('themeChips');
+  if (!host || typeof rcTheme === 'undefined') return;
+  const cur = rcTheme.current();
+  if (!host.children.length){
+    Object.keys(rcTheme.THEMES).forEach(key => {
+      const c = document.createElement('div');
+      c.className = 'chip'; c.dataset.theme = key; c.textContent = rcTheme.THEMES[key].label;
+      c.addEventListener('click', () => themeSet(key));
+      host.appendChild(c);
+    });
+  }
+  Array.from(host.children).forEach(c => c.classList.toggle('active', c.dataset.theme === cur));
+}
+async function themeSet(key){
+  // Die Datenbankregeln lassen nur aktive Admins schreiben; die Prüfung hier ist nur Komfort.
+  if (!(aud.staffAuthorized && aud.staffRole === 'admin')) return;
+  const hint = $aud('themeHint');
+  hint.textContent = 'Wird gespeichert …';
+  try {
+    await firebase.database().ref('config/theme').set(key);
+    hint.textContent = 'Gilt sofort für alle Seiten und Geräte.';
+  } catch (e){
+    hint.textContent = 'Konnte nicht gespeichert werden: ' + (e.message || e);
+  }
+}
+
 function audInit(){
   audLoad();
   $aud('audBtn').addEventListener('click', audOpenPanel);
@@ -3482,6 +3521,16 @@ function audInit(){
     else audDetach();
     audRender();
   });
+  // Aktives Theme live verfolgen (öffentlich lesbar, kein Login nötig).
+  window.addEventListener('rc-theme', themeChipsRender);
+  if (state.mp.available && typeof firebase !== 'undefined') {
+    try {
+      firebase.database().ref('config/theme').on('value', snap => {
+        const v = snap.val();
+        rcTheme.apply(typeof v === 'string' && rcTheme.THEMES[v] ? v : rcTheme.DEFAULT);
+      }, () => {});
+    } catch (e) {}
+  }
   $aud('audClearQueue').addEventListener('click', () => { aud.queue = []; audSave(); audRender(); });
   document.querySelectorAll('#audModeChips .chip').forEach(c => c.addEventListener('click', () => { aud.mode = c.dataset.m; audSave(); audRender(); }));
   document.querySelectorAll('#audModChips .chip').forEach(c => c.addEventListener('click', () => { aud.moderation = c.dataset.mod; audSave(); audRender(); }));
