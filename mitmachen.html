@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RAPCOUCH – Dein Wort</title>
 <style>
-  :root{ --bg:#0a0a0a; --bg-raised:#121212; --fg:#ededea; --fg-dim:#6b6b68; --accent:#ff4d1c; --line:#232320; }
+  :root{ --bg:#0E0C07; --bg-raised:#1A160C; --fg:#FFF8E6; --fg-dim:#C9BFA3; --accent:#FFC81E; --line:#6B5F3F; --danger:#FF8F7A; }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--fg);
     font-family:'Helvetica Neue',Arial,sans-serif; }
@@ -29,12 +29,13 @@
   button:disabled{ opacity:.45; cursor:default; }
   #msg{ min-height:44px; margin-top:16px; font-size:15px; line-height:1.4; }
   #msg.ok{ color:var(--accent); }
-  #msg.err{ color:#ff8a70; }
+  #msg.err{ color:var(--danger); }
   #closed{ display:none; padding:18px; border:1px solid var(--line); border-radius:10px; background:var(--bg-raised);
     color:var(--fg-dim); font-size:15px; line-height:1.45; }
   #conn{ margin-top:26px; font-family:ui-monospace,Consolas,monospace; font-size:10px; letter-spacing:.1em; color:var(--fg-dim); text-align:center; }
   .fine{ margin-top:22px; font-size:12px; color:var(--fg-dim); line-height:1.5; }
 </style>
+<script src="theme.js"></script>
 </head>
 <body>
   <div class="brand">RAP<b>COUCH</b></div>

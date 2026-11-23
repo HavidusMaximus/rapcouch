@@ -56,6 +56,19 @@ test('staff: Liste nur für Admins, eigener Eintrag für alle', async () => {
   await assertFails(db('mod1').ref('staff/mod2').once('value'));
 });
 
+/* ---------- config/theme ---------- */
+test('config/theme: öffentlich lesbar, nur aktive Admins schreiben, nur bekannte Themes', async () => {
+  await assertSucceeds(db(null).ref('config/theme').once('value'));
+  await assertSucceeds(db('admin1').ref('config/theme').set('klassisch'));
+  await assertSucceeds(db('admin1').ref('config/theme').set('kontrast'));
+  await assertFails(db('admin1').ref('config/theme').set('pink'));
+  await assertFails(db('mod1').ref('config/theme').set('kontrast'));
+  await assertFails(db('old1').ref('config/theme').set('kontrast'));
+  await assertFails(verified('fremd').ref('config/theme').set('kontrast'));
+  await assertFails(db(null).ref('config/theme').set('kontrast'));
+  await assertFails(db('admin1').ref('config/anderes').set('x'));
+});
+
 /* ---------- audience: open ---------- */
 test('open: öffentlich lesbar, nur aktive Staff schreiben', async () => {
   await assertSucceeds(db(null).ref('audience/live/open').once('value'));
